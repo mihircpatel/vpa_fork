@@ -1,6 +1,7 @@
 images/*
 annotations/*
 bkp/*
+.idea/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -90,6 +91,7 @@ celerybeat-schedule
 .venv
 venv/
 ENV/
+vispr_env/
 
 # Spyder project settings
 .spyderproject

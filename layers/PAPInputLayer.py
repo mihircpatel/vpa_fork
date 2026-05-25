@@ -2,8 +2,7 @@
 import json
 import time
 import pickle
-import scipy.misc
-import skimage.io
+# removed scipy.misc and skimage dependency; use PIL for image operations
 import os
 import sys
 import csv
@@ -17,15 +16,29 @@ import json
 from random import shuffle
 from threading import Thread
 from PIL import Image
-from scipy.misc import imread
 
-CAFFE_ROOT = '/BS/orekondy/work/opt/caffe-wloss/'
-sys.path.insert(0, os.path.join(CAFFE_ROOT, 'python'))
-import caffe
+def _resize_array(arr, im_shape):
+    img = Image.fromarray(arr.astype('uint8'))
+    resized = img.resize((int(im_shape[1]), int(im_shape[0])), Image.ANTIALIAS)
+    return np.asarray(resized)
 
-sys.path.insert(1, CAFFE_ROOT + 'examples/pycaffe/layers')   # the datalayers we will use are in this directory.
-sys.path.insert(1, CAFFE_ROOT + 'examples/pycaffe')   # the tools file is in this folder
-from tools import SimpleTransformer
+CAFFE_ROOT = os.environ.get('VISPR_CAFFE_ROOT', '/BS/orekondy/work/opt/caffe-wloss/')
+_have_caffe = False
+try:
+    if os.path.exists(os.path.join(CAFFE_ROOT, 'python')):
+        sys.path.insert(0, os.path.join(CAFFE_ROOT, 'python'))
+    import caffe  # noqa: F401
+    _have_caffe = True
+except Exception:
+    # Caffe is optional for the PyTorch conversion. Use a local SimpleTransformer
+    _have_caffe = False
+
+try:
+    # Try to import the Caffe tools.SimpleTransformer if available on sys.path
+    from tools import SimpleTransformer  # type: ignore
+except Exception:
+    # Fall back to the local PyTorch-compatible transformer
+    from vispr.torch_utils.transformer import SimpleTransformer
 
 ATTRIBUTE_PATH = '/home/orekondy/work/blur_personal/multi_label_anno_tool/static/attributes_v2.tsv'
 SURVEY_RES_PATH = '/home/orekondy/work2/blur_personal/survey_graphs/survey_v5_res50.tsv'
@@ -44,7 +57,7 @@ def load_attributes(attribute_path=ATTRIBUTE_PATH):
 
     with open(attribute_path, 'r') as fin:
         ts = csv.DictReader(fin, delimiter='\t')
-        rows = filter(lambda r: r['category_id'] is not '', [row for row in ts])
+        rows = [row for row in ts if row.get('category_id', '') != '']
 
         for row in rows:
             attr_id_to_categ_id[row['attribute_id']] = row['category_id']
@@ -144,7 +157,7 @@ def get_w2idx(dictlist, attr_id_to_weight):
             this_attr_list = this_anno['labels']
         else:
             this_attr_list = []
-            for categ_id, attr_id_list in this_anno['attributes'].iteritems():
+            for categ_id, attr_id_list in this_anno['attributes'].items():
                 this_attr_list += attr_id_list
         attr_id_set = set(this_attr_list)
         # What's the weight of this training example?
@@ -161,7 +174,7 @@ def get_w2idx(dictlist, attr_id_to_weight):
 
     for w in sorted(weight_to_idx_list.keys()):
         shuffle(weight_to_idx_list[w])
-        print '{} -> {}'.format(w, len(weight_to_idx_list[w]))
+        print('{} -> {}'.format(w, len(weight_to_idx_list[w])))
 
     return weight_to_idx_list
 
@@ -187,7 +200,7 @@ def get_class2idx(dictlist):
             this_attr_list = this_anno['labels']
         else:
             this_attr_list = []
-            for categ_id, attr_id_list in this_anno['attributes'].iteritems():
+                for categ_id, attr_id_list in this_anno['attributes'].items():
                 this_attr_list += attr_id_list
         attr_id_set = set(this_attr_list)
 
@@ -199,7 +212,7 @@ def get_class2idx(dictlist):
 
     for attr_id in sorted(class_to_idx_list.keys(), key=lambda x: x.split('_')[0][1:]):
         shuffle(class_to_idx_list[attr_id])
-        print '{} -> {}'.format(attr_id, len(class_to_idx_list[attr_id]))
+        print('{} -> {}'.format(attr_id, len(class_to_idx_list[attr_id])))
 
     return class_to_idx_list
 
@@ -257,7 +270,7 @@ class PAPMultilabelDataLayerSync(caffe.Layer):
         if self.user_prefs is not None:
             self.user_pref_mat = self.batch_loader.get_user_prefs()
             n_attr, self.n_users = self.user_pref_mat.shape
-            print 'self.n_users = ', self.n_users
+            print('self.n_users = ', self.n_users)
             top[3].reshape(self.batch_size, self.n_users)
 
         print_info("PAPMultilabelDataLayerSync", params)
@@ -365,7 +378,7 @@ class BatchLoader(object):
             assert False, "Not Supported"
             # self.attr_id_to_idx = load_attr_to_idx()
 
-        self.attr_id_list = self.attr_id_to_idx.keys()
+        self.attr_id_list = list(self.attr_id_to_idx.keys())
         self.n_attr = len(self.attr_id_list)
 
         self.user_mat = None
@@ -390,7 +403,7 @@ class BatchLoader(object):
                         pref_dct[attr_id] = scores
 
                 # Check n_users is consistent
-                n_users = len(pref_dct.values()[0])
+                n_users = len(list(pref_dct.values())[0])
                 assert all([n_users == len(x) for x in pref_dct.values()]), Counter([len(x) for x in pref_dct.values()])
 
                 # Manually fill-in safe
@@ -402,13 +415,13 @@ class BatchLoader(object):
                 # Where col_j represents attribute preferences for user j
                 n_attr = len(self.attr_id_to_idx)
                 self.user_mat = np.zeros((n_attr, n_users))
-                for attr_id, idx in self.attr_id_to_idx.iteritems():
+                for attr_id, idx in self.attr_id_to_idx.items():
                     attr_scores = pref_dct[attr_id]
                     self.user_mat[idx] = attr_scores
 
-            print 'User preferences: '
-            print self.user_mat
-            print 'user_mat.shape = ', self.user_mat.shape
+            print('User preferences: ')
+            print(self.user_mat)
+            print('user_mat.shape = ', self.user_mat.shape)
 
             # Normalize user_mat
             if self.scale_user_pref:
@@ -419,8 +432,8 @@ class BatchLoader(object):
         self.indexlist = [line.rstrip('\n') for line in open(self.anno_list)]
 
         if self.memimages:
-            print "Loading images into memory"
-        print "Loading {} annotations".format(len(self.indexlist))
+            print("Loading images into memory")
+        print("Loading {} annotations".format(len(self.indexlist)))
 
         # Store each image-label object as a dict
         # But, do not store the images. Only store the image file path
@@ -428,15 +441,15 @@ class BatchLoader(object):
         shuffle(self.dictlist)
 
         # Create a weight vector
-        self.idx_to_attr_id = {v: k for k, v in self.attr_id_to_idx.iteritems()}
+        self.idx_to_attr_id = {v: k for k, v in self.attr_id_to_idx.items()}
         self.idx_to_weight = np.ones(68)
         if self.wloss:
             for idx in sorted(self.idx_to_attr_id.keys()):
                 attr_id = self.idx_to_attr_id[idx]
                 self.idx_to_weight[idx] = self.attr_id_to_weight[attr_id]
 
-        print 'Class weights: '
-        print self.idx_to_weight
+        print('Class weights: ')
+        print(self.idx_to_weight)
 
         if self.sampling == 'weighted':
             '''
@@ -486,7 +499,7 @@ class BatchLoader(object):
                 attr_set = set(this_anno['labels'])
             else:
                 this_attr_list = []
-                for categ_id, attr_id_list in this_anno['attributes'].iteritems():
+                for categ_id, attr_id_list in this_anno['attributes'].items():
                     this_attr_list += attr_id_list
                 attr_set = set(this_attr_list)
             multilabel = attribute_set_to_vec(self.attr_id_to_idx, attr_set, is_safe=this_anno['safe'])
@@ -501,17 +514,10 @@ class BatchLoader(object):
                 this_anno['image_path'] = image_resized_path
 
             if self.memimages:
-                im = imread(this_anno['image_path'])
-                if len(im.shape) == 2:
-                    # This is a grayscale image
-                    im = np.asarray(Image.open(this_anno['image_path']).convert('RGB'))
-                elif len(im.shape) == 3 and im.shape[2] == 4:
-                    # CMYK Image
-                    im = np.asarray(Image.open(this_anno['image_path']).convert('RGB'))
-
+                # Load image via PIL and convert to RGB
+                im = np.asarray(Image.open(this_anno['image_path']).convert('RGB'))
                 if self.img_transform == 'resize':
-                    # Resize the image to the required shape
-                    im = scipy.misc.imresize(im, self.im_shape)
+                    im = _resize_array(im, self.im_shape)
 
                 this_anno['im'] = im
 
@@ -519,11 +525,11 @@ class BatchLoader(object):
                     sys.stdout.write("processing %d/%d (%.2f%% done)   \r" % (idx, len(self.dictlist), idx * 100.0 / len(self.dictlist)))
                     sys.stdout.flush()
 
-        print 'multilabel.shape = ', multilabel.shape
+        print('multilabel.shape = ', multilabel.shape)
         # this class does some simple data-manipulations
         self.transformer = SimpleTransformer(mean=[104, 117, 123])
 
-        print "BatchLoader initialized with {} images".format(len(self.indexlist))
+        print("BatchLoader initialized with {} images".format(len(self.indexlist)))
 
     def get_weights(self):
         return self.idx_to_weight
@@ -544,7 +550,7 @@ class BatchLoader(object):
         # The next block should fill this in
         if self.sampling == 'weighted':
             # 1. Sample a weight
-            this_w = np.random.choice(self.weight_to_idx_list.keys())
+            this_w = np.random.choice(list(self.weight_to_idx_list.keys()))
             # 2.a. Is an image available for this weight. If not,
             if len(self.weight_to_idx_list[this_w]) == 0:
                 # Copy from the original mapping
@@ -556,7 +562,7 @@ class BatchLoader(object):
             next_idx = self.weight_to_idx_list[this_w].pop()
         elif self.sampling == 'class_weighted':
             # 1. Sample a label
-            this_attr_id = np.random.choice(self.class_to_idx_list.keys())
+            this_attr_id = np.random.choice(list(self.class_to_idx_list.keys()))
             # 2a. Is there a training example available for this weight? If not,
             if len(self.class_to_idx_list[this_attr_id]) == 0:
                 # Copy from original mapping
@@ -588,19 +594,13 @@ class BatchLoader(object):
         if 'im' in dct:
             im = dct['im']
         else:
-            im = imread(image_path)
-            if len(im.shape) == 2:
-                # This is a grayscale image
-                im = np.asarray(Image.open(image_path).convert('RGB'))
-            elif len(im.shape) == 3 and im.shape[2] == 4:
-                # CMYK Image
-                im = np.asarray(Image.open(image_path).convert('RGB'))
+            im = np.asarray(Image.open(image_path).convert('RGB'))
         org_shape = im.shape
 
         # Resize/Transform image ---------------------------------------------------------------------------------------
         if self.img_transform == 'resize':
             # Resize the image to the required shape
-            im = scipy.misc.imresize(im, self.im_shape)
+            im = _resize_array(im, self.im_shape)
         elif self.img_transform == 'rand_crop':
             # Take a random crop of size self.im_shape
             # im.shape = [H, W, 3]
@@ -613,14 +613,14 @@ class BatchLoader(object):
             if img_w < crop_w:
                 new_w = crop_w
                 new_h = int(np.round(img_h * (new_w / float(img_w))))   # Scale height to same aspect ratio
-                im = scipy.misc.imresize(im, (new_h, new_w))
+                im = _resize_array(im, (new_h, new_w))
                 img_w, img_h = new_w, new_h
                 # print 'New (w, h): ', (img_w, img_h)
 
             if img_h < crop_h:
                 new_h = crop_h
                 new_w = int(np.round(img_w * (new_h / float(img_h))))
-                im = scipy.misc.imresize(im, (new_h, new_w))
+                im = _resize_array(im, (new_h, new_w))
                 img_w, img_h = new_w, new_h
                 # print 'New (w, h): ', (img_w, img_h)
 
@@ -637,8 +637,9 @@ class BatchLoader(object):
             # print 'im.shape = ', im.shape
 
         # do a simple horizontal flip as data augmentation
-        flip = np.random.choice(2)*2-1
-        im = im[:, ::flip, :]
+        flip = np.random.choice(2) * 2 - 1
+        if flip == -1:
+            im = im[:, ::-1, :]
 
         transformed_im = self.transformer.preprocess(im)
 
@@ -661,8 +662,8 @@ def print_info(name, params):
     """
     Output some info regarding the class
     """
-    print "{} initialized for split: {}, with bs: {}, im_shape: {}.".format(
+    print("{} initialized for split: {}, with bs: {}, im_shape: {}.".format(
         name,
         params['anno_list'],
         params['batch_size'],
-        params['im_shape'])
+        params['im_shape']))

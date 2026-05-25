@@ -14,10 +14,7 @@ import os
 import os.path as osp
 
 import numpy as np
-import matplotlib.pyplot as plt
-
 from PIL import Image
-from scipy.misc import imread, imresize
 
 from vispr import DS_ROOT
 
@@ -46,19 +43,21 @@ def resize_min_side(pil_img, min_len):
 
 
 def resize_img_in_dir(input_dir, output_dir, min_length, skip_existing=True):
-    print 'Input directory: ', input_dir
-    print 'Output directory: ', output_dir
-    print
+    print('Input directory: ', input_dir)
+    print('Output directory: ', output_dir)
+    print()
     num_files = len(os.listdir(input_dir))
-    print 'Resizing: {} images'.format(num_files)
+    print('Resizing: {} images'.format(num_files))
     num_existing_files = len(os.listdir(output_dir))
-    print 'Found: {} images already exist'.format(num_existing_files)
+    print('Found: {} images already exist'.format(num_existing_files))
 
-    go_ahead = raw_input('Continue? [y/n]: ')
-    if go_ahead == 'y':
-        pass
-    else:
-        'Exiting...'
+    try:
+        go_ahead = input('Continue? [y/n]: ')
+    except Exception:
+        # Non-interactive environments
+        go_ahead = 'y'
+    if go_ahead.strip().lower() not in ('y', 'yes'):
+        print('Exiting...')
         return
 
     for idx, org_img_fname in enumerate(os.listdir(input_dir)):
@@ -102,7 +101,7 @@ def main():
     out_dir = params['out_dir']
 
     if not osp.exists(out_dir):
-        print 'Path {} does not exist. Creating it...'.format(out_dir)
+        print('Path {} does not exist. Creating it...'.format(out_dir))
         os.makedirs(out_dir)
     resize_img_in_dir(input_dir, out_dir, min_length=min_length, skip_existing=params['skip_existing'])
 

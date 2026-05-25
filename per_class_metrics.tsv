@@ -1,0 +1,69 @@
+attribute_id	attribute_name	num_occurrences	ap
+a0_safe	Safe	4.0	91.66666666666666
+a1_age_approx	Age Group	2.0	23.61111111111111
+a2_weight_approx	Weight Group	2.0	26.666666666666668
+a3_height_approx	Height Group	2.0	83.33333333333333
+a4_gender	Gender	4.0	48.61111111111111
+a5_eye_color	Eye Color	2.0	26.666666666666668
+a6_hair_color	Hair Color	4.0	46.111111111111114
+a7_fingerprint	Fingerprint	0.0	0.0
+a8_signature	Signature	0.0	0.0
+a9_face_complete	Face (Complete)	2.0	26.666666666666668
+a10_face_partial	Face (Partial)	3.0	83.33333333333333
+a11_tattoo	Tattoo	0.0	0.0
+a12_semi_nudity	Semi-nudity	0.0	0.0
+a13_full_nudity	Complete nudity	0.0	0.0
+a16_race	Race	3.0	40.27777777777778
+a17_color	Skin Color	3.0	38.88888888888889
+a18_ethnic_clothing	Traditional clothing	0.0	0.0
+a19_name_full	Full Name	1.0	25.0
+a20_name_first	First Name	0.0	0.0
+a21_name_last	Last Name	0.0	0.0
+a23_birth_city	Place of Birth	0.0	0.0
+a24_birth_date	Date of Birth	0.0	0.0
+a25_nationality	Nationality	1.0	100.0
+a26_handwriting	Handwriting	0.0	0.0
+a27_marital_status	Marital status	0.0	0.0
+a29_ausweis	National Identification	0.0	0.0
+a30_credit_card	Credit Card	0.0	0.0
+a31_passport	Passport	1.0	50.0
+a32_drivers_license	Drivers License	0.0	0.0
+a33_student_id	Student ID	0.0	0.0
+a35_mail	Mail	0.0	0.0
+a37_receipt	Receipts	0.0	0.0
+a38_ticket	Tickets	0.0	0.0
+a39_disability_physical	Physical disability	0.0	0.0
+a41_injury	Medical Treatment	0.0	0.0
+a43_medicine	Medical History	0.0	0.0
+a46_occupation	Occupation	2.0	45.0
+a48_occassion_work	Work Occassion	0.0	0.0
+a49_phone	Phone number	0.0	0.0
+a55_religion	Religion	0.0	0.0
+a56_sexual_orientation	Sexual Orientation	0.0	0.0
+a57_culture	Culture	0.0	0.0
+a58_hobbies	Hobbies	0.0	0.0
+a59_sports	Sports	1.0	20.0
+a60_occassion_personal	Personal Occassion	0.0	0.0
+a61_opinion_general	General Opinion	0.0	0.0
+a62_opinion_political	Political Opinion	0.0	0.0
+a70_education_history	Education history	0.0	0.0
+a99_legal_involvement	Legal involvement	0.0	0.0
+a64_rel_personal	Personal Relationships	0.0	0.0
+a65_rel_social	Social Circle	0.0	0.0
+a66_rel_professional	Professional Circle	0.0	0.0
+a67_rel_competitors	Competitors	0.0	0.0
+a68_rel_spectators	Spectators	2.0	50.0
+a69_rel_views	Similar view	0.0	0.0
+a73_landmark	Visited Landmark or Street Sign	2.0	100.0
+a74_address_current_complete	Visited Location (Complete)	0.0	0.0
+a75_address_current_partial	Visited Location (Partial)	1.0	33.33333333333333
+a78_address_home_complete	Home address (Complete)	0.0	0.0
+a79_address_home_partial	Home address (Partial)	0.0	0.0
+a82_date_time	Date/Time of Activity	0.0	0.0
+a85_username	Username	0.0	0.0
+a90_email	Email address	0.0	0.0
+a92_email_content	Email content	0.0	0.0
+a97_online_conversation	Online conversations	0.0	0.0
+a102_vehicle_ownership	Vehicle Ownership	0.0	0.0
+a103_license_plate_complete	License Plate (Complete)	1.0	16.666666666666664
+a104_license_plate_partial	License Plate (Partial)	0.0	0.0

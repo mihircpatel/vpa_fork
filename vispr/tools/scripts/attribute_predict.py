@@ -17,7 +17,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from PIL import Image
-from scipy.misc import imread
 
 from vispr import DS_ROOT, CAFFE_ROOT
 from vispr.tools.common.utils import *
@@ -44,7 +43,7 @@ def classify_paths(net, transformer, anno_file_list, out_file, batch_size=64):
             with open(anno_path) as jf:
                 anno_path_list.append(anno_path)
                 anno_list.append(json.load(jf))
-    print 'Found {} annotation files'.format(len(anno_list))
+    print('Found {} annotation files'.format(len(anno_list)))
 
     n_files = len(anno_list)
 
@@ -74,8 +73,11 @@ def classify_paths(net, transformer, anno_file_list, out_file, batch_size=64):
                 image = caffe.io.load_image(image_path)
                 transformed_image = transformer.preprocess('data', image)
             except ValueError:
-                print 'Unable to process: ', image_path
-                print image.shape
+                print('Unable to process: ', image_path)
+                try:
+                    print(image.shape)
+                except Exception:
+                    pass
             this_batch[idx] = transformed_image
 
         net.blobs['data'].data[...] = this_batch
@@ -124,7 +126,7 @@ def main():
     mu = mu.mean(1).mean(1)  # average over pixels to obtain the mean (BGR) pixel values
     # mu = np.asarray([111.0, 102.0, 116.0])
     # mu = np.asarray([104.0, 117.0, 123.0])
-    # print 'mean-subtracted values:', zip('BGR', mu)
+    # print('mean-subtracted values:', zip('BGR', mu))
 
     # create transformer for the input called 'data'
     transformer = caffe.io.Transformer({'data': net.blobs['data'].data.shape})

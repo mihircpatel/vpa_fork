@@ -17,7 +17,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from PIL import Image
-from scipy.misc import imread
 from sklearn.metrics import average_precision_score
 
 from vispr import DS_ROOT
@@ -40,7 +39,7 @@ def main():
 
     # Load Attributes --------------------------------------------------------------------------------------------------
     attr_id_to_name, attr_id_to_idx = load_attributes()
-    idx_to_attr_id = {v: k for k, v in attr_id_to_idx.iteritems()}
+    idx_to_attr_id = {v: k for k, v in attr_id_to_idx.items()}
     n_attr = len(attr_id_to_idx)
 
     # Load predictions -------------------------------------------------------------------------------------------------
@@ -82,9 +81,9 @@ def main():
 
     # Evaluate Overall Attribute Prediction ----------------------------------------------------------------------------
     n_examples, n_labels = gt_mat.shape
-    print '# Examples = ', n_examples
-    print '# Labels = ', n_labels
-    print 'Macro MAP = {:.2f}'.format(100 * average_precision_score(gt_mat, pred_probs_mat, average='macro'))
+    print('# Examples = ', n_examples)
+    print('# Labels = ', n_labels)
+    print('Macro MAP = {:.2f}'.format(100 * average_precision_score(gt_mat, pred_probs_mat, average='macro')))
 
     if params['class_scores'] is not None:
         cmap_stats = average_precision_score(gt_mat, pred_probs_mat, average=None)
@@ -100,10 +99,11 @@ def main():
 
     if params['qual'] is not None:
         if not osp.exists(params['qual']):
-            print '{} does not exist. Creating it ...'.format(params['qual'])
+            print('{} does not exist. Creating it ...'.format(params['qual']))
             os.mkdir(params['qual'])
         for pred in pred_list:
-            image_path = pred['image_path']
+            # image_path = pred['image_path']
+            image_path = osp.join(DS_ROOT, pred['image_path'])
             im = Image.open(image_path)
 
             fig, [ax1, ax2] = plt.subplots(1, 2, figsize=(20, 15))

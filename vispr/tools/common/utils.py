@@ -14,10 +14,8 @@ import os.path as osp
 import shutil
 
 import numpy as np
-import matplotlib.pyplot as plt
 
 from PIL import Image
-from scipy.misc import imread
 
 from vispr import DS_ROOT
 
@@ -44,7 +42,7 @@ def load_attributes(attr_list_path=None):
 
     with open(attributes_path, 'r') as fin:
         ts = csv.DictReader(fin, delimiter='\t')
-        rows = filter(lambda r: r['idx'] is not '', [row for row in ts])
+        rows = [row for row in ts if row.get('idx', '') != '']
 
         for row in rows:
             attr_id_to_name[row['attribute_id']] = row['description']
