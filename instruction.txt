@@ -1,0 +1,9 @@
+Role: Senior AI Architect and PyTorch Engineer.
+Task: Implement an independent, modular data loader that streams a `.tar.gz` dataset archive directly from a Hugging Face repository without downloading or extracting the full archive to local disk space (protecting Google Colab disk limits). This module must integrate seamlessly via configuration without modifying any existing training scripts or local data logic.
+Core Architectural Requirements:
+1. Zero-Impact Modular Design: Create a separate directory `data/tar_streaming/`. Do not touch existing files of data processing or training scripts. The new module should be self-contained and importable as a standalone component.
+2. Remote Archive Streaming: Use `huggingface_hub.HfFileSystem` to open a remote file stream to the target `.tar.gz` file on the Hugging Face Hub using range requests or piped buffering—avoiding local disk allocation.
+3. In-Memory Tar Extraction (`tarfile`): Open the streamed file object using Python's `tarfile.open(fileobj=..., mode='r|gz')` to iterate through internal members (e.g., images, tensors, or text files) sequentially on-the-fly.
+4. Configurable Toggle: Update or create configs/data_config.yaml` to include a switch (`data_source: "local"` vs `"hf_tar_stream"`), along with parameters for `repo_id`, `file_path`, and an in-memory shuffle `buffer_size` or use exisiting approach of providing commandline arguments.
+5. Adapter Pattern: Create an adapter layer that translates the extracted archive members into standard PyTorch tensors matching the structural format expected by your existing model inputs.
+6. Etracted directory structure Hndling: Ensure that the module can handle nested directories within the `.tar.gz` archive, correctly mapping them to the expected input format for the model. The adapter should flatten or restructure the data as necessary to maintain compatibility with existing training pipelines.
