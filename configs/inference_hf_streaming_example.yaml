@@ -1,0 +1,28 @@
+# Example configuration for inference with large HF tar-stream datasets.
+# Use this with:
+#   python vispr/tools/scripts/attribute_predict_torch.py \
+#     --config configs/inference_hf_streaming_example.yaml \
+#     --weights model.pth \
+#     --outfile preds.jsonl
+
+data_source: "hf_tar_stream"
+
+streaming:
+  repo_id: "your-org/your-dataset"
+
+  # Combined archive mode example:
+  file_path: "test2017.tar.gz"
+
+  # If you use dual archive mode instead, uncomment the following and comment out file_path:
+  # image_archive_path: "test2017_images.tar.gz"
+  # annotation_archive_path: "test2017_annotations.tar.gz"
+  # anno_list_path: "test2017.txt"
+
+  buffer_size: 2000
+
+data:
+  im_shape: [224, 224]
+  mean: [104.0, 117.0, 123.0]
+  num_classes: 68
+  batch_size: 32
+  num_workers: 0
