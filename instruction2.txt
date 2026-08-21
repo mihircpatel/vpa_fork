@@ -1,0 +1,8 @@
+Role: Senior AI Architect and PyTorch Engineer.
+Task: Implement an independent, modular data loader that streams a `.tar.gz` dataset archive directly from a Hugging Face repository without downloading or extracting the full archive to local disk space (protecting Google Colab disk limits). This module must integrate seamlessly via configuration without modifying any existing training scripts or local data logic.
+Code Updates requirements after initial implementation:
+1. Update the previous changes considering the different .tar.gz archives structures.
+2. Different archive files for images and annotations.
+3. Each archive file having structure like directry/image_name.jpg and directory/annotation_name.json (e.g. train2017/000000000000.jpg and train2017/000000000000.json)
+4. Different archive files for train, validation and test.
+5. if possiblke do the changes similer to the previous task where list of annotation files are given in .txt file and read it as input for the model. Same as Local data loading (original behavior).
