@@ -2,6 +2,13 @@ images/*
 annotations/*
 bkp/*
 .idea/
+/qualitative_results/*
+/model_package/*
+/checkpoints/*
+
+#output files
+#/*.jsonl
+#/*.tsv
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

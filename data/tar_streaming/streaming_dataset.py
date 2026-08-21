@@ -39,7 +39,8 @@ class StreamingPAPDataset(IterableDataset):
         im_shape: Optional[Tuple[int, int]] = None,
         transform: Optional[SimpleTransformer] = None,
         shuffle: bool = True,
-        attr_list_path: Optional[str] = None
+        attr_list_path: Optional[str] = None,
+        return_metadata: bool = False
     ):
         """Initialize streaming dataset.
 
@@ -58,6 +59,7 @@ class StreamingPAPDataset(IterableDataset):
         self.im_shape = tuple(im_shape) if im_shape else config.im_shape
         self.shuffle = shuffle
         self.buffer_size = config.buffer_size
+        self.return_metadata = return_metadata
 
         # Initialize transformer
         if transform is not None:
@@ -96,14 +98,15 @@ class StreamingPAPDataset(IterableDataset):
                 f"buffer_size={self.buffer_size}, shuffle={shuffle}"
             )
 
-    def _process_record(self, record: Dict[str, Any]) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _process_record(self, record: Dict[str, Any]):
         """Process a single record into model input format.
 
         Args:
             record: Record dictionary with 'image' and 'labels'
 
         Returns:
-            Tuple of (image_tensor, label_tensor)
+            Tuple of (image_tensor, label_tensor) or (image_tensor, label_tensor, image_path)
+            when return_metadata=True.
         """
         # Get image
         img = record['image']
@@ -124,7 +127,10 @@ class StreamingPAPDataset(IterableDataset):
         # Convert to torch tensors
         image_tensor = torch.from_numpy(data.copy())
         label_tensor = torch.from_numpy(label_vec)
+        image_path = record.get('image_path', record.get('anno_path'))
 
+        if self.return_metadata:
+            return image_tensor, label_tensor, image_path
         return image_tensor, label_tensor
 
     def _shuffle_buffer(self, iterator):
