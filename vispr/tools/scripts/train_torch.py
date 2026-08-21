@@ -2,6 +2,8 @@
 
 Trains a torchvision backbone with a linear head for multi-label
 classification using BCEWithLogitsLoss.
+
+Supports both local data loading and streaming from Hugging Face Hub.
 """
 import argparse
 import os
@@ -18,6 +20,13 @@ from sklearn.metrics import average_precision_score
 import numpy as np
 
 from vispr.datasets.pap_dataset import PAPDataset
+
+# Import streaming components (only if needed)
+try:
+    from data.tar_streaming import StreamingConfig, StreamingPAPDataset, get_streaming_dataloader
+    STREAMING_AVAILABLE = True
+except ImportError:
+    STREAMING_AVAILABLE = False
 
 
 def build_model(arch: str, num_classes: int, pretrained: bool = False):
@@ -83,7 +92,32 @@ def validate(model, device, loader):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--infile', required=True, help='Annotation list (one JSON per line or path list)')
+    # Data source configuration
+    parser.add_argument('--data-source', default='local', choices=['local', 'hf_tar_stream'],
+                        help='Data source: "local" for local files or "hf_tar_stream" for HuggingFace streaming')
+    parser.add_argument('--config', default=None, help='Path to YAML config file (optional)')
+
+    # Local data arguments
+    parser.add_argument('--infile', default=None, help='Annotation list (one JSON per line or path list)')
+    parser.add_argument('--valfile', default=None, help='Validation annotation list (optional)')
+
+    # HuggingFace streaming arguments - Combined archive mode
+    parser.add_argument('--hf-repo', default=None, help='HuggingFace repository ID (e.g., "username/dataset-name")')
+    parser.add_argument('--hf-file-path', default=None, help='Path to combined .tar.gz file in HF repository')
+    parser.add_argument('--hf-val-file-path', default=None, help='Path to validation .tar.gz file in HF repository')
+
+    # HuggingFace streaming arguments - Dual archive mode (separate image/annotation archives)
+    parser.add_argument('--hf-image-archive', default=None, help='Path to image .tar.gz file in HF repository')
+    parser.add_argument('--hf-anno-archive', default=None, help='Path to annotation .tar.gz file in HF repository')
+    parser.add_argument('--hf-anno-list', default=None, help='Path to .txt file listing annotations (in HF repo or local)')
+    parser.add_argument('--hf-val-image-archive', default=None, help='Path to validation image .tar.gz')
+    parser.add_argument('--hf-val-anno-archive', default=None, help='Path to validation annotation .tar.gz')
+    parser.add_argument('--hf-val-anno-list', default=None, help='Path to validation annotation list .txt')
+
+    # Common streaming settings
+    parser.add_argument('--buffer-size', type=int, default=1000, help='Shuffle buffer size for streaming')
+
+    # Model and training arguments
     parser.add_argument('--arch', default='resnet50')
     parser.add_argument('--pretrained', action='store_true')
     parser.add_argument('--epochs', type=int, default=10)
@@ -91,14 +125,125 @@ def main():
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--num-classes', type=int, default=68)
     parser.add_argument('--save-path', default='model_last.pth')
-    parser.add_argument('--valfile', default=None, help='Validation annotation list (optional)')
     parser.add_argument('--device', default='cuda' if torch.cuda.is_available() else 'cpu')
     args = parser.parse_args()
 
+    # Load configuration from YAML if provided
+    config = None
+    if args.config and os.path.exists(args.config):
+        if not STREAMING_AVAILABLE:
+            print("Warning: Config file provided but streaming module not available. Install with: pip install huggingface_hub PyYAML")
+        else:
+            config = StreamingConfig.from_yaml(args.config)
+            # Override with command-line arguments
+            if args.data_source:
+                config.data_source = args.data_source
+            if args.hf_repo:
+                config.repo_id = args.hf_repo
+
+            # Combined archive mode
+            if args.hf_file_path:
+                config.file_path = args.hf_file_path
+
+            # Dual archive mode
+            if args.hf_image_archive:
+                config.image_archive_path = args.hf_image_archive
+            if args.hf_anno_archive:
+                config.annotation_archive_path = args.hf_anno_archive
+            if args.hf_anno_list:
+                config.anno_list_path = args.hf_anno_list
+
+            # Common settings
+            if args.buffer_size:
+                config.buffer_size = args.buffer_size
+            if args.batch_size:
+                config.batch_size = args.batch_size
+            if args.num_classes:
+                config.num_classes = args.num_classes
+
+    # Determine data source
+    data_source = args.data_source
+    if config:
+        data_source = config.data_source
+
     device = torch.device(args.device)
-    dataset = PAPDataset(args.infile, im_shape=(224, 224))
-    loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=2)
-    print('No. of samples in train set: '+ str(len(loader.dataset)))
+
+    # Create dataset and loader based on data source
+    if data_source == 'hf_tar_stream':
+        if not STREAMING_AVAILABLE:
+            raise ImportError(
+                "Streaming module not available. Install dependencies with:\n"
+                "pip install huggingface_hub PyYAML"
+            )
+
+        # Create config from args if not loaded from file
+        if config is None:
+            if not args.hf_repo:
+                raise ValueError("For HF streaming, --hf-repo is required")
+
+            # Detect mode: dual archive or combined archive
+            is_dual_mode = (args.hf_image_archive or args.hf_anno_archive or args.hf_anno_list)
+
+            if is_dual_mode:
+                # Dual archive mode
+                if not all([args.hf_image_archive, args.hf_anno_archive, args.hf_anno_list]):
+                    raise ValueError(
+                        "For dual archive mode, --hf-image-archive, --hf-anno-archive, "
+                        "and --hf-anno-list are all required"
+                    )
+
+                config = StreamingConfig(
+                    data_source='hf_tar_stream',
+                    repo_id=args.hf_repo,
+                    image_archive_path=args.hf_image_archive,
+                    annotation_archive_path=args.hf_anno_archive,
+                    anno_list_path=args.hf_anno_list,
+                    buffer_size=args.buffer_size,
+                    batch_size=args.batch_size,
+                    num_classes=args.num_classes
+                )
+            else:
+                # Combined archive mode
+                if not args.hf_file_path:
+                    raise ValueError("For combined archive mode, --hf-file-path is required")
+
+                config = StreamingConfig(
+                    data_source='hf_tar_stream',
+                    repo_id=args.hf_repo,
+                    file_path=args.hf_file_path,
+                    buffer_size=args.buffer_size,
+                    batch_size=args.batch_size,
+                    num_classes=args.num_classes
+                )
+
+        config.validate()
+
+        # Print mode information
+        if config.is_dual_archive_mode():
+            print(f"Using HuggingFace streaming (dual archive mode):")
+            print(f"  Repo: {config.repo_id}")
+            print(f"  Images: {config.image_archive_path}")
+            print(f"  Annotations: {config.annotation_archive_path}")
+            print(f"  Anno list: {config.anno_list_path}")
+        else:
+            print(f"Using HuggingFace streaming (combined archive mode):")
+            print(f"  Repo: {config.repo_id}")
+            print(f"  File: {config.file_path}")
+
+        dataset = StreamingPAPDataset(config=config, shuffle=True)
+        # Note: IterableDataset doesn't support multiple workers well
+        loader = DataLoader(dataset, batch_size=args.batch_size, num_workers=0)
+        print(f'Streaming dataset from HF Hub')
+
+    else:
+        # Local data loading (original behavior)
+        if not args.infile:
+            raise ValueError("For local data source, --infile is required")
+
+        print(f"Using local data from: {args.infile}")
+        dataset = PAPDataset(args.infile, im_shape=(224, 224))
+        loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=2)
+        print('No. of samples in train set: ' + str(len(loader.dataset)))
 
     model = build_model(args.arch, args.num_classes, pretrained=args.pretrained).to(device)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
@@ -106,7 +251,51 @@ def main():
 
     best_loss = math.inf
     val_loader = None
-    if args.valfile:
+
+    # Setup validation loader
+    if data_source == 'hf_tar_stream':
+        if not STREAMING_AVAILABLE:
+            print("Warning: Streaming not available, skipping validation")
+        else:
+            # Detect dual archive mode for validation
+            has_dual_val = (args.hf_val_image_archive or args.hf_val_anno_archive or args.hf_val_anno_list)
+            has_combined_val = args.hf_val_file_path
+
+            if has_dual_val:
+                # Dual archive mode validation
+                if not all([args.hf_val_image_archive, args.hf_val_anno_archive, args.hf_val_anno_list]):
+                    print("Warning: For dual archive validation, all of --hf-val-image-archive, "
+                          "--hf-val-anno-archive, and --hf-val-anno-list are required. Skipping validation.")
+                else:
+                    val_config = StreamingConfig(
+                        data_source='hf_tar_stream',
+                        repo_id=config.repo_id if config else args.hf_repo,
+                        image_archive_path=args.hf_val_image_archive,
+                        annotation_archive_path=args.hf_val_anno_archive,
+                        anno_list_path=args.hf_val_anno_list,
+                        buffer_size=args.buffer_size,
+                        batch_size=args.batch_size,
+                        num_classes=args.num_classes
+                    )
+                    val_dataset = StreamingPAPDataset(config=val_config, shuffle=False)
+                    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, num_workers=0)
+                    print(f'Streaming validation dataset from HF Hub (dual archive mode)')
+
+            elif has_combined_val:
+                # Combined archive mode validation
+                val_config = StreamingConfig(
+                    data_source='hf_tar_stream',
+                    repo_id=config.repo_id if config else args.hf_repo,
+                    file_path=args.hf_val_file_path,
+                    buffer_size=args.buffer_size,
+                    batch_size=args.batch_size,
+                    num_classes=args.num_classes
+                )
+                val_dataset = StreamingPAPDataset(config=val_config, shuffle=False)
+                val_loader = DataLoader(val_dataset, batch_size=args.batch_size, num_workers=0)
+                print(f'Streaming validation dataset from HF Hub (combined archive mode)')
+
+    elif data_source == 'local' and args.valfile:
         val_dataset = PAPDataset(args.valfile, im_shape=(224, 224))
         val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=2)
         print('No. of samples in validation set: ' + str(len(val_loader.dataset)))

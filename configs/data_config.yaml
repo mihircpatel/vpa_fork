@@ -1,0 +1,98 @@
+# Data Configuration for VPA Training
+# Toggle between local data loading and HuggingFace tar streaming
+
+# Data source: "local" or "hf_tar_stream"
+data_source: "local"
+
+# Local data configuration (used when data_source: "local")
+local:
+  # These are typically provided via command-line arguments
+  # infile: path/to/train_list.txt
+  # valfile: path/to/val_list.txt
+
+# HuggingFace tar streaming configuration (used when data_source: "hf_tar_stream")
+# Supports two modes:
+# 1. Combined archive mode: Images and annotations in single .tar.gz
+# 2. Dual archive mode: Separate .tar.gz files for images and annotations
+streaming:
+  # Hugging Face repository ID (e.g., "username/dataset-name")
+  repo_id: null
+
+  # === Combined Archive Mode ===
+  # Path to combined .tar.gz file (e.g., "train.tar.gz")
+  file_path: null
+
+  # === Dual Archive Mode ===
+  # Path to image .tar.gz file (e.g., "train2017_images.tar.gz")
+  image_archive_path: null
+
+  # Path to annotation .tar.gz file (e.g., "train2017_annotations.tar.gz")
+  annotation_archive_path: null
+
+  # Path to .txt file listing annotations to load (e.g., "train2017.txt")
+  # Can be in HF repo or local file
+  anno_list_path: null
+
+  # Number of samples to keep in memory for shuffling
+  # Higher values = better shuffling but more memory usage
+  buffer_size: 1000
+
+# Common data configuration
+data:
+  # Image shape (height, width)
+  im_shape: [224, 224]
+
+  # Mean values for normalization [Blue, Green, Red]
+  mean: [104.0, 117.0, 123.0]
+
+  # Number of attribute classes
+  num_classes: 68
+
+  # Batch size for data loading
+  batch_size: 32
+
+  # Number of worker processes
+  # Note: For streaming datasets, use 0 or 1
+  num_workers: 2
+
+# ============================================================================
+# Example Configurations
+# ============================================================================
+
+# --- Example 1: Local Data Loading ---
+# data_source: "local"
+# Then use command-line args:
+#   --infile train2017.txt --valfile val2017.txt
+
+# --- Example 2: HuggingFace Streaming (Combined Archive Mode) ---
+# data_source: "hf_tar_stream"
+# streaming:
+#   repo_id: "username/vispr-dataset"
+#   file_path: "train_combined.tar.gz"
+#   buffer_size: 1000
+#
+# Command-line equivalent:
+#   --data-source hf_tar_stream
+#   --hf-repo username/vispr-dataset
+#   --hf-file-path train_combined.tar.gz
+
+# --- Example 3: HuggingFace Streaming (Dual Archive Mode) ---
+# data_source: "hf_tar_stream"
+# streaming:
+#   repo_id: "username/vispr-dataset"
+#   image_archive_path: "train2017_images.tar.gz"
+#   annotation_archive_path: "train2017_annotations.tar.gz"
+#   anno_list_path: "train2017.txt"
+#   buffer_size: 1000
+#
+# Command-line equivalent:
+#   --data-source hf_tar_stream
+#   --hf-repo username/vispr-dataset
+#   --hf-image-archive train2017_images.tar.gz
+#   --hf-anno-archive train2017_annotations.tar.gz
+#   --hf-anno-list train2017.txt
+#
+# Archive structure expected:
+#   Images: train2017/000000000001.jpg, train2017/000000000002.jpg, ...
+#   Annotations: train2017/000000000001.json, train2017/000000000002.json, ...
+#   Anno list (train2017.txt): One annotation path per line
