@@ -20,6 +20,16 @@ from sklearn.metrics import average_precision_score
 import numpy as np
 
 from vispr.datasets.pap_dataset import PAPDataset
+from vispr.tools.common.logger import get_logger
+# Per-flow logger; writes to logs/train.log by default and mirrors to console.
+logger = get_logger('train')
+# Route existing print(...) calls to logger.info for minimal invasive changes
+def _logger_print(*args, **kwargs):
+    sep = kwargs.get('sep', ' ')
+    end = kwargs.get('end', '\n')
+    message = sep.join(map(str, args))
+    logger.info(message)
+print = _logger_print
 
 # Import streaming components (only if needed)
 try:

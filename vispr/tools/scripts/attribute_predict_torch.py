@@ -18,6 +18,15 @@ from torch.utils.data import DataLoader
 import torchvision.models as models
 
 from vispr.datasets.pap_dataset import PAPDataset
+from vispr.tools.common.logger import get_logger
+logger = get_logger('inference')
+# Route print to logger.info (scripts use print sparingly)
+def _logger_print(*args, **kwargs):
+    sep = kwargs.get('sep', ' ')
+    end = kwargs.get('end', '\n')
+    message = sep.join(map(str, args))
+    logger.info(message)
+print = _logger_print
 
 
 def build_model(arch: str, num_classes: int, pretrained: bool = False):

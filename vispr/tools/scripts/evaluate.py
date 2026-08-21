@@ -21,6 +21,15 @@ from sklearn.metrics import average_precision_score
 
 from vispr import DS_ROOT
 from vispr.tools.common.utils import *
+from vispr.tools.common.logger import get_logger
+logger = get_logger('evaluate')
+# Route print(...) calls to logger.info to keep changes minimal
+def _logger_print(*args, **kwargs):
+    sep = kwargs.get('sep', ' ')
+    end = kwargs.get('end', '\n')
+    message = sep.join(map(str, args))
+    logger.info(message)
+print = _logger_print
 
 __author__ = "Tribhuvanesh Orekondy"
 __maintainer__ = "Tribhuvanesh Orekondy"
