@@ -7,12 +7,14 @@ to load (similar to local PAPDataset behavior).
 import io
 import tarfile
 import json
+import os.path as osp
 from typing import Iterator, Dict, Any, Optional, List, Tuple
 from pathlib import Path
 import logging
 
 from huggingface_hub import HfFileSystem
 from PIL import Image
+from vispr import DS_ROOT
 
 logger = logging.getLogger(__name__)
 
@@ -77,25 +79,29 @@ class HFDualArchiveStreamer:
         Returns:
             List of annotation paths
         """
+        anno_list_loaded = False
         # Try loading from HF Hub first
         try:
             hf_path = f"hf://datasets/{self.repo_id}/{anno_list_path}"
             with self.fs.open(hf_path, 'r') as f:
                 lines = [line.strip() for line in f if line.strip()]
             logger.info(f"Loaded {len(lines)} annotations from HF Hub: {hf_path}")
+            anno_list_loaded = True
             return lines
         except Exception as e:
             logger.debug(f"Could not load from HF Hub: {e}, trying local path")
 
         # Fall back to local file
-        try:
-            with open(anno_list_path, 'r') as f:
-                lines = [line.strip() for line in f if line.strip()]
-            logger.info(f"Loaded {len(lines)} annotations from local file: {anno_list_path}")
-            return lines
-        except Exception as e:
-            logger.error(f"Failed to load annotation list from {anno_list_path}: {e}")
-            raise FileNotFoundError(f"Could not load annotation list: {anno_list_path}")
+        if not anno_list_loaded:
+            try:
+                anno_list_path = osp.join(DS_ROOT, anno_list_path)
+                with open(anno_list_path, 'r') as f:
+                    lines = [line.strip() for line in f if line.strip()]
+                logger.info(f"Loaded {len(lines)} annotations from local file: {anno_list_path}")
+                return lines
+            except Exception as e:
+                logger.error(f"Failed to load annotation list from {anno_list_path}: {e}")
+                raise FileNotFoundError(f"Could not load annotation list: {anno_list_path}")
 
     def _normalize_path(self, path: str) -> str:
         """Normalize path for matching.
