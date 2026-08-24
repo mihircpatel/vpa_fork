@@ -196,7 +196,7 @@ class StreamingPAPDataset(IterableDataset):
         """
         # Try to get estimate (expensive, requires full scan)
         # Only do this if explicitly needed
-        return -1
+        return 0
 
 
 class StreamingPAPDatasetFromFile(StreamingPAPDataset):
