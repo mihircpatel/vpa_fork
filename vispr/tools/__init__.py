@@ -1,1 +1,1 @@
-DS_ROOT = '/home/orekondy/work2/datasets/VISPR2017'
+DS_ROOT = '/content/vpa_fork/vispr/datasets/'

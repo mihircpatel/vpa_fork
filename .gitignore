@@ -112,3 +112,6 @@ vispr_env/
 
 # mypy
 .mypy_cache/
+/output/q_result/
+/qualitative_results/
+/.vpa_venv/
