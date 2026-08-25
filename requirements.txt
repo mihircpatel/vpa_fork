@@ -8,3 +8,8 @@ onnxscript
 huggingface_hub
 PyYAML
 
+# Dependencies for file_downloader (optional providers)
+requests
+gdown
+boto3
+azure-storage-blob

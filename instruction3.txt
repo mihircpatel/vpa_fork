@@ -1,0 +1,8 @@
+Role: Senior AI Architect and PyTorch Engineer.
+Task: Implement a independent utility module for downloading the files from specific folder from google colab:
+1. Create a Python module named `file_downloader.py`.
+2. File downloading from checkpoint folder (*.pth) in root directory of repo.
+3. Follow an appropriate patterns to make the module reusable and easy to integrate into other projects.
+4. Make it easily configurable for other provider instead of Google Colab, such as AWS S3 or Azure Blob Storage.
+5. Make sure to handle exceptions and provide meaningful error messages.
+6. Maintain appropriate logging for debugging and monitoring purposes.

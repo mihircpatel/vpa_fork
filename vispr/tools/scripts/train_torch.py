@@ -172,6 +172,15 @@ def main():
     parser.add_argument('--num-classes', type=int, default=68)
     parser.add_argument('--save-path', default='model_last.pth')
     parser.add_argument('--device', default='cuda' if torch.cuda.is_available() else 'cpu')
+
+    # Checkpoint download options
+    parser.add_argument('--download-checkpoints', action='store_true', help='If set, download checkpoints before training')
+    parser.add_argument('--checkpoint-provider', default='local', help='Provider for checkpoints: local, http, google_colab, s3, azure')
+    parser.add_argument('--checkpoint-provider-config', default=None, help='JSON string or path to JSON file for provider config')
+    parser.add_argument('--checkpoint-source', default='', help='Provider-specific source/folder (for local, a folder path)')
+    parser.add_argument('--checkpoint-pattern', default='*.pth', help='Pattern to match checkpoint filenames')
+    parser.add_argument('--checkpoint-dest', default=None, help='Local destination dir for downloaded checkpoints (defaults to save-path directory)')
+
     args = parser.parse_args()
 
     # Load configuration from YAML if provided
@@ -213,6 +222,36 @@ def main():
         data_source = config.data_source
 
     device = torch.device(args.device)
+
+    # Optionally download checkpoints before training
+    if args.download_checkpoints:
+        # parse provider config
+        pconfig = {}
+        if args.checkpoint_provider_config:
+            if os.path.isfile(args.checkpoint_provider_config):
+                try:
+                    with open(args.checkpoint_provider_config, 'r') as f:
+                        pconfig = json.load(f)
+                except Exception as e:
+                    raise ValueError(f'Failed to load checkpoint provider config file: {e}')
+            else:
+                try:
+                    pconfig = json.loads(args.checkpoint_provider_config)
+                except Exception as e:
+                    raise ValueError(f'Failed to parse checkpoint provider config: {e}')
+        # destination dir defaults to directory of save_path
+        if args.checkpoint_dest:
+            dest_dir = args.checkpoint_dest
+        else:
+            dest_dir = os.path.dirname(args.save_path) or '.'
+        try:
+            from vispr.tools.common.file_downloader import DownloadManager
+            dm = DownloadManager(provider=args.checkpoint_provider, provider_config=pconfig, logger_obj=logger)
+            downloaded = dm.download_checkpoints(folder=args.checkpoint_source, dest_dir=dest_dir, pattern=args.checkpoint_pattern)
+            logger.info('Downloaded %d checkpoint(s) to %s', len(downloaded), dest_dir)
+        except Exception as e:
+            logger.error('Checkpoint download failed: %s', e)
+            # proceed without failing training; user can choose to abort by removing flag
 
     # Create dataset and loader based on data source
     if data_source == 'hf_tar_stream':
