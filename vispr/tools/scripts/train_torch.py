@@ -10,6 +10,7 @@ import os
 import json
 import math
 from pathlib import Path
+import tempfile
 
 import torch
 import torch.nn as nn
@@ -30,6 +31,37 @@ def _logger_print(*args, **kwargs):
     message = sep.join(map(str, args))
     logger.info(message)
 print = _logger_print
+
+
+def _atomic_torch_save(obj, target_path):
+    """
+    Atomically save `obj` to `target_path` using a temporary file and os.replace.
+    Ensures parent directory exists. Safe for multithreaded concurrent saves (last-writer wins).
+    """
+    try:
+        target_dir = os.path.dirname(target_path) or '.'
+        # Safe directory creation even under concurrent access
+        os.makedirs(target_dir, exist_ok=True)
+        # Create a unique temporary file in same dir to ensure os.replace is atomic
+        with tempfile.NamedTemporaryFile(delete=False, dir=target_dir, prefix='.tmp_save_', suffix='.pth') as tmpf:
+            tmp_name = tmpf.name
+        try:
+            # Use torch.save to write to the temp file
+            torch.save(obj, tmp_name)
+            # Atomically move temp file to final destination
+            os.replace(tmp_name, target_path)
+        except Exception:
+            # Cleanup temp file on error
+            try:
+                os.remove(tmp_name)
+            except Exception:
+                pass
+            logger.exception('Failed to write temp checkpoint %s', tmp_name)
+            raise
+    except Exception as e:
+        logger.error('Error saving checkpoint to %s: %s', target_path, e)
+        raise
+
 
 # Import streaming components (only if needed)
 try:
@@ -317,13 +349,20 @@ def main():
     for epoch in range(1, args.epochs + 1):
         avg_loss = train_one_epoch(model, device, loader, optimizer, criterion, epoch)
         print(f'Epoch {epoch} finished. Avg Loss: {avg_loss:.4f}')
-        # Save checkpoint each epoch
-        torch.save({'epoch': epoch, 'state_dict': model.state_dict(), 'optimizer': optimizer.state_dict()}, args.save_path)
+        # Save checkpoint each epoch (atomic, thread-safe)
+        ckpt = {'epoch': epoch, 'state_dict': model.state_dict(), 'optimizer': optimizer.state_dict()}
+        try:
+            _atomic_torch_save(ckpt, args.save_path)
+        except Exception:
+            print(f'Failed to save checkpoint to {args.save_path}')
         if avg_loss < best_loss:
             best_loss = avg_loss
             best_path = os.path.splitext(args.save_path)[0] + '_best.pth'
-            torch.save({'epoch': epoch, 'state_dict': model.state_dict(), 'optimizer': optimizer.state_dict()}, best_path)
-            print('Saved best model to', best_path)
+            try:
+                _atomic_torch_save(ckpt, best_path)
+                print('Saved best model to', best_path)
+            except Exception:
+                print(f'Failed to save best model to {best_path}')
 
         if val_loader is not None:
             mean_ap, ap_list = validate(model, device, val_loader)
