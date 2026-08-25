@@ -1,0 +1,15 @@
+Role: Senior AI Architect and PyTorch Engineer.
+Task: Integrate the existing data loader that streams a `.tar.gz` dataset archive directly from a Hugging Face repository without downloading or extracting the full archive to local disk space (protecting Google Colab disk limits). This module must integrate seamlessly via configuration without modifying any existing training scripts or local data logic.
+Code Updates requirements after initial implementation:
+1. Update the changes of 'hf_tar_stream' option using 'StreamingPAPDataset' similer to @train_torch.py into the @attribute_predict_torch.py flow.
+2. Ensure that the data loader can handle large datasets efficiently by implementing a streaming mechanism that reads data in chunks, minimizing memory usage.
+3. Implement error handling to manage potential issues during streaming, such as network interruptions or corrupted data chunks, and provide informative error messages.
+4. Add logging capabilities to track the progress of data streaming, including the number of samples processed and any errors encountered.
+5. Ensure compatibility with existing training scripts by providing a configuration option to switch between local and streaming data loading seamlessly.
+6. Implement unit tests to validate the functionality of the streaming data loader, ensuring that it correctly handles various edge cases and integrates well with the existing training pipeline.
+7. Optimize the streaming data loader for performance, ensuring that it can handle high-throughput scenarios without significant slowdowns or bottlenecks.
+8. Provide comprehensive documentation for the streaming data loader, including usage examples, configuration options, and troubleshooting tips to assist users in integrating it into their workflows.
+9. Ensure that the streaming data loader is compatible with different versions of PyTorch and Hugging Face libraries, and provide guidance on any version-specific considerations or dependencies.
+10. Implement a caching mechanism to store frequently accessed data chunks locally, reducing the need for repeated streaming and improving overall performance for subsequent runs.
+11. Ensure that the streaming data loader supports both CPU and GPU environments, allowing users to leverage available hardware resources effectively.
+12. Implement a mechanism to validate the integrity of streamed data chunks, ensuring that corrupted or incomplete data does not affect the training process.

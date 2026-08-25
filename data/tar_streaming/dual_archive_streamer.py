@@ -3,11 +3,15 @@
 This module supports the common dataset pattern where images and annotations
 are stored in separate .tar.gz files, with a .txt file listing the annotations
 to load (similar to local PAPDataset behavior).
+
+Includes retry logic for network errors, data integrity validation, and
+progress counters.
 """
 import io
 import tarfile
 import json
 import os.path as osp
+import time
 from typing import Iterator, Dict, Any, Optional, List, Tuple
 from pathlib import Path
 import logging
@@ -38,7 +42,8 @@ class HFDualArchiveStreamer:
         image_archive_path: str,
         annotation_archive_path: str,
         anno_list_path: Optional[str] = None,
-        anno_list_content: Optional[List[str]] = None
+        anno_list_content: Optional[List[str]] = None,
+        max_retries: int = 3,
     ):
         """Initialize dual archive streamer.
 
@@ -48,12 +53,19 @@ class HFDualArchiveStreamer:
             annotation_archive_path: Path to annotation .tar.gz in repo
             anno_list_path: Path to .txt file listing annotations (in repo or local)
             anno_list_content: Pre-loaded list of annotation paths (alternative to anno_list_path)
+            max_retries: Maximum number of retries on network errors
         """
         self.repo_id = repo_id
         self.image_archive_path = image_archive_path
         self.annotation_archive_path = annotation_archive_path
         self.anno_list_path = anno_list_path
+        self.max_retries = max_retries
         self.fs = HfFileSystem()
+
+        # Progress counters
+        self.processed_count = 0
+        self.error_count = 0
+        self.skipped_count = 0
 
         # Load annotation list
         if anno_list_content is not None:
@@ -61,14 +73,74 @@ class HFDualArchiveStreamer:
         elif anno_list_path:
             self.anno_list = self._load_anno_list(anno_list_path)
         else:
-            # If no list provided, will stream all annotations found
             self.anno_list = None
 
         logger.info(
             f"Initialized HFDualArchiveStreamer: "
             f"images={image_archive_path}, annotations={annotation_archive_path}, "
-            f"num_annotations={len(self.anno_list) if self.anno_list else 'all'}"
+            f"num_annotations={len(self.anno_list) if self.anno_list else 'all'}, "
+            f"max_retries={max_retries}"
         )
+
+    def reset_counters(self):
+        """Reset progress counters."""
+        self.processed_count = 0
+        self.error_count = 0
+        self.skipped_count = 0
+
+    def _retry_open(self, full_path: str):
+        """Open a remote file with retry logic for network errors.
+
+        Args:
+            full_path: HfFileSystem path to open
+
+        Returns:
+            An open file-like object.
+
+        Raises:
+            RuntimeError: If all retries are exhausted.
+        """
+        last_err = None
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                return self.fs.open(full_path, 'rb')
+            except Exception as e:
+                last_err = e
+                wait = min(2 ** attempt, 30)
+                logger.warning(
+                    f"Attempt {attempt}/{self.max_retries} failed to open {full_path}: {e}. "
+                    f"Retrying in {wait}s..."
+                )
+                time.sleep(wait)
+        raise RuntimeError(
+            f"Failed to open {full_path} after {self.max_retries} attempts: {last_err}"
+        )
+
+    @staticmethod
+    def _validate_member(member_name: str, file_data: bytes) -> bool:
+        """Basic integrity check on extracted tar member.
+
+        Checks that the data is non-empty and, for known image formats,
+        that the file header matches the extension.
+
+        Returns:
+            True if the data looks valid, False otherwise.
+        """
+        if not file_data:
+            logger.warning(f"Empty data for member {member_name}")
+            return False
+
+        suffix = Path(member_name).suffix.lower()
+        if suffix in ('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff'):
+            from .hf_tar_streamer import _detect_image_format
+            fmt = _detect_image_format(file_data)
+            if fmt is None:
+                logger.warning(
+                    f"Image header mismatch for {member_name}: "
+                    f"extension={suffix}, detected_header=none"
+                )
+                return False
+        return True
 
     def _load_anno_list(self, anno_list_path: str) -> List[str]:
         """Load annotation list from file.
@@ -112,7 +184,7 @@ class HFDualArchiveStreamer:
         return Path(path).stem
 
     def _stream_tar_archive(self, archive_path: str) -> Iterator[Tuple[str, bytes]]:
-        """Stream a single tar.gz archive from HF Hub.
+        """Stream a single tar.gz archive from HF Hub with retry and validation.
 
         Args:
             archive_path: Path to .tar.gz file in repository
@@ -121,29 +193,49 @@ class HFDualArchiveStreamer:
             Tuples of (member_name, file_data)
         """
         full_path = f"hf://datasets/{self.repo_id}/{archive_path}"
+        remote_file = None
 
         try:
-            with self.fs.open(full_path, 'rb') as remote_file:
-                with tarfile.open(fileobj=remote_file, mode='r|gz') as tar:
-                    logger.info(f"Streaming tar archive: {full_path}")
+            remote_file = self._retry_open(full_path)
+            with tarfile.open(fileobj=remote_file, mode='r|gz') as tar:
+                logger.info(f"Streaming tar archive: {full_path}")
 
-                    for member in tar:
-                        if not member.isfile():
-                            continue
+                for member in tar:
+                    if not member.isfile():
+                        continue
 
+                    try:
                         file_obj = tar.extractfile(member)
                         if file_obj is None:
+                            self.skipped_count += 1
                             continue
 
                         try:
                             file_data = file_obj.read()
+                            if not self._validate_member(member.name, file_data):
+                                self.skipped_count += 1
+                                continue
+                            self.processed_count += 1
                             yield member.name, file_data
                         finally:
                             file_obj.close()
+                    except (tarfile.TarError, OSError) as e:
+                        self.error_count += 1
+                        logger.warning(f"Error reading member {member.name}: {e}")
+                        continue
 
+        except RuntimeError:
+            raise
         except Exception as e:
+            self.error_count += 1
             logger.error(f"Error streaming tar archive {full_path}: {e}")
             raise
+        finally:
+            if remote_file is not None:
+                try:
+                    remote_file.close()
+                except Exception:
+                    pass
 
     def _build_annotation_index(self) -> Dict[str, Dict[str, Any]]:
         """Build index of annotations by streaming annotation archive.
@@ -157,18 +249,17 @@ class HFDualArchiveStreamer:
             if not member_name.endswith('.json'):
                 continue
 
-            # Parse JSON
             try:
                 annotation = json.loads(file_data.decode('utf-8'))
                 normalized_name = self._normalize_path(member_name)
 
-                # Store with both original path and normalized name
                 anno_index[normalized_name] = {
                     'annotation': annotation,
                     'original_path': member_name
                 }
 
-            except json.JSONDecodeError as e:
+            except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                self.error_count += 1
                 logger.warning(f"Failed to parse JSON {member_name}: {e}")
                 continue
 
@@ -213,6 +304,8 @@ class HFDualArchiveStreamer:
             - annotation: Parsed JSON annotation
             - labels: List of attribute labels
         """
+        self.reset_counters()
+
         # Step 1: Build annotation index
         logger.info("Building annotation index...")
         anno_index = self._build_annotation_index()
@@ -230,32 +323,26 @@ class HFDualArchiveStreamer:
         matched_count = 0
 
         for member_name, file_data in self._stream_tar_archive(self.image_archive_path):
-            # Check if it's an image file
             if not self._is_image_file(member_name):
                 continue
 
-            # Get normalized name for matching
             normalized_name = self._normalize_path(member_name)
 
-            # Check if we have annotation for this image
             if normalized_name not in anno_index:
                 continue
 
-            # Load image
             try:
                 image = Image.open(io.BytesIO(file_data)).convert('RGB')
             except Exception as e:
+                self.error_count += 1
                 logger.warning(f"Failed to load image {member_name}: {e}")
                 continue
 
-            # Get annotation data
             anno_data = anno_index[normalized_name]
             annotation = anno_data['annotation']
 
-            # Extract labels
             labels = self._extract_labels(annotation)
 
-            # Create structured record
             record = {
                 'image': image,
                 'image_path': annotation.get('image_path', member_name),
@@ -265,7 +352,6 @@ class HFDualArchiveStreamer:
                 'original_anno_path': anno_data['original_path']
             }
 
-            # Add optional fields
             for key in ['safe', 'label_vec', 'image_id']:
                 if key in annotation:
                     record[key] = annotation[key]
@@ -310,3 +396,11 @@ class HFDualArchiveStreamer:
         if self.anno_list:
             return len(self.anno_list)
         return -1
+
+    def stats(self) -> Dict[str, int]:
+        """Return current progress counters."""
+        return {
+            'processed': self.processed_count,
+            'errors': self.error_count,
+            'skipped': self.skipped_count,
+        }

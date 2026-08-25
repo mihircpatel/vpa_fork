@@ -162,6 +162,10 @@ def main():
 
     # Common streaming settings
     parser.add_argument('--buffer-size', type=int, default=1000, help='Shuffle buffer size for streaming')
+    parser.add_argument('--chunk-size', type=int, default=8*1024*1024, help='Read chunk size in bytes for tar streaming (default 8MB)')
+    parser.add_argument('--cache-dir', default=None, help='Local directory for record-level caching (avoids re-streaming)')
+    parser.add_argument('--log-interval', type=int, default=100, help='Log streaming progress every N records (0 to disable)')
+    parser.add_argument('--max-retries', type=int, default=3, help='Max retries on network errors before giving up')
 
     # Model and training arguments
     parser.add_argument('--arch', default='resnet50')
@@ -215,6 +219,14 @@ def main():
                 config.batch_size = args.batch_size
             if args.num_classes:
                 config.num_classes = args.num_classes
+            if args.chunk_size:
+                config.chunk_size = args.chunk_size
+            if args.log_interval is not None:
+                config.log_interval = args.log_interval
+            if args.max_retries is not None:
+                config.max_retries = args.max_retries
+            if args.cache_dir:
+                config.cache_dir = args.cache_dir
 
     # Determine data source
     data_source = args.data_source
@@ -285,7 +297,11 @@ def main():
                     anno_list_path=args.hf_anno_list,
                     buffer_size=args.buffer_size,
                     batch_size=args.batch_size,
-                    num_classes=args.num_classes
+                    num_classes=args.num_classes,
+                    chunk_size=args.chunk_size,
+                    log_interval=args.log_interval,
+                    max_retries=args.max_retries,
+                    cache_dir=args.cache_dir,
                 )
             else:
                 # Combined archive mode
@@ -298,7 +314,11 @@ def main():
                     file_path=args.hf_file_path,
                     buffer_size=args.buffer_size,
                     batch_size=args.batch_size,
-                    num_classes=args.num_classes
+                    num_classes=args.num_classes,
+                    chunk_size=args.chunk_size,
+                    log_interval=args.log_interval,
+                    max_retries=args.max_retries,
+                    cache_dir=args.cache_dir,
                 )
 
         config.validate()
@@ -360,7 +380,11 @@ def main():
                         anno_list_path=args.hf_val_anno_list,
                         buffer_size=args.buffer_size,
                         batch_size=args.batch_size,
-                        num_classes=args.num_classes
+                        num_classes=args.num_classes,
+                        chunk_size=args.chunk_size,
+                        log_interval=args.log_interval,
+                        max_retries=args.max_retries,
+                        cache_dir=args.cache_dir,
                     )
                     val_dataset = StreamingPAPDataset(config=val_config, shuffle=False)
                     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, num_workers=0)
@@ -374,7 +398,11 @@ def main():
                     file_path=args.hf_val_file_path,
                     buffer_size=args.buffer_size,
                     batch_size=args.batch_size,
-                    num_classes=args.num_classes
+                    num_classes=args.num_classes,
+                    chunk_size=args.chunk_size,
+                    log_interval=args.log_interval,
+                    max_retries=args.max_retries,
+                    cache_dir=args.cache_dir,
                 )
                 val_dataset = StreamingPAPDataset(config=val_config, shuffle=False)
                 val_loader = DataLoader(val_dataset, batch_size=args.batch_size, num_workers=0)

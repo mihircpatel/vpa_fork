@@ -1,0 +1,32 @@
+Role: Senior AI Architect and PyTorch Engineer.
+Task: Integrate the existing data loader that streams a `.tar.gz` dataset archive directly from a Hugging Face repository without downloading or extracting the full archive to local disk space (protecting Google Colab disk limits). This module must integrate seamlessly via configuration without modifying any existing training scripts or local data logic.
+Code Updates requirements after initial implementation:
+1. Update the changes of 'hf_tar_stream' option using 'StreamingPAPDataset' similer to @train_torch.py into the @attribute_predict_torch.py flow.
+2. Ensure that the data loader can handle large datasets efficiently by implementing a streaming mechanism that reads data in chunks, minimizing memory usage.
+3. Implement error handling to manage potential issues during streaming, such as network interruptions or corrupted data chunks, and provide informative error messages.
+4. Add logging capabilities to track the progress of data streaming, including the number of samples processed and any errors encountered.
+5. Ensure compatibility with existing training scripts by providing a configuration option to switch between local and streaming data loading seamlessly.
+6. Implement unit tests to validate the functionality of the streaming data loader, ensuring that it correctly handles various edge cases and integrates well with the existing training pipeline.
+7. Optimize the streaming data loader for performance, ensuring that it can handle high-throughput scenarios without significant slowdowns or bottlenecks.
+8. Provide comprehensive documentation for the streaming data loader, including usage examples, configuration options, and troubleshooting tips to assist users in integrating it into their workflows.
+9. Ensure that the streaming data loader is compatible with different versions of PyTorch and Hugging Face libraries, and provide guidance on any version-specific considerations or dependencies.
+10. Implement a caching mechanism to store frequently accessed data chunks locally, reducing the need for repeated streaming and improving overall performance for subsequent runs.
+11. Ensure that the streaming data loader supports both CPU and GPU environments, allowing users to leverage available hardware resources effectively.
+12. Implement a mechanism to validate the integrity of streamed data chunks, ensuring that corrupted or incomplete data does not affect the training process.
+16. Ensure that the streaming data loader can handle concurrent access from multiple training processes, allowing for distributed training scenarios without data contention issues.
+17. Implement a mechanism to resume streaming from a specific point in the dataset, allowing users to continue training from where they left off in case of interruptions or failures.
+18. Provide a mechanism for users to specify custom data augmentation techniques for the streamed data, allowing for enhanced model generalization and performance.
+19. Ensure that the streaming data loader can handle datasets with varying sizes and structures, providing flexibility for users working with diverse data sources.
+20. Implement a mechanism to track and log the time taken for each data chunk to be streamed, allowing users to identify potential bottlenecks in the data loading process and optimize their training workflows accordingly.
+21. Ensure that the streaming data loader can handle datasets with missing or incomplete labels, providing appropriate handling and logging for such cases to avoid training disruptions.
+22. Implement a mechanism to validate the format and structure of the streamed data, ensuring that it adheres to expected standards and preventing potential issues during training.
+23. Provide a mechanism for users to specify custom data sampling strategies for the streamed data, allowing for more control over the training process and model performance.
+24. Ensure that the streaming data loader can handle datasets with varying levels of noise or corruption, providing appropriate filtering and logging mechanisms to maintain data quality during training.
+25. Implement a mechanism to track and log the number of data chunks successfully streamed versus those that encountered errors, providing users with insights into the reliability of the streaming process.
+26. Ensure that the streaming data loader can handle datasets with varying levels of class imbalance, providing appropriate sampling and weighting mechanisms to address potential biases in the training data.
+27. Implement a mechanism to allow users to specify custom data shuffling strategies for the streamed data, enabling better generalization and model performance.
+28. Ensure that the streaming data loader can handle datasets with varying levels of temporal dependencies, providing appropriate handling and logging for such cases to avoid training disruptions.
+29. Implement a mechanism to allow users to specify custom data normalization techniques for the streamed data, ensuring that the data is appropriately scaled and standardized for optimal model performance.
+30. Ensure that the streaming data loader can handle datasets with varying levels of feature sparsity, providing appropriate handling and logging for such cases to avoid training disruptions and maintain model performance.
+31. Implement a mechanism to allow users to specify custom data transformation pipelines for the streamed data, enabling more advanced preprocessing and feature engineering techniques to be applied to the data before training.
+32. Ensure that the streaming data loader can handle datasets with varying levels of data augmentation, providing appropriate handling and logging for such cases to avoid training disruptions and maintain model performance.

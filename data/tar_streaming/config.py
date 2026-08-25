@@ -2,6 +2,8 @@
 
 Handles configuration from YAML files or command-line arguments.
 """
+import hashlib
+import os
 from dataclasses import dataclass, field
 from typing import Optional, Tuple
 import yaml
@@ -35,6 +37,12 @@ class StreamingConfig:
         num_classes: Number of attribute classes
         batch_size: Batch size for data loading
         num_workers: Number of worker processes for data loading
+
+        # Streaming tuning
+        chunk_size: Read chunk size in bytes for tar streaming (default 8MB)
+        log_interval: Log progress every N records (0 to disable)
+        max_retries: Max retries on network errors before giving up
+        cache_dir: Local directory for record-level caching (None to disable)
     """
     data_source: str = "local"
     repo_id: Optional[str] = None
@@ -54,6 +62,23 @@ class StreamingConfig:
     num_classes: int = 68
     batch_size: int = 32
     num_workers: int = 2
+
+    # Streaming tuning
+    chunk_size: int = 8 * 1024 * 1024  # 8 MB
+    log_interval: int = 100
+    max_retries: int = 3
+    cache_dir: Optional[str] = None
+
+    def get_cache_key(self) -> str:
+        """Derive a stable directory name for local record caching."""
+        raw = f"{self.repo_id}:{self.file_path or ''}:{self.image_archive_path or ''}:{self.annotation_archive_path or ''}"
+        return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+    def get_cache_path(self) -> Optional[str]:
+        """Return the resolved cache directory path, or None if caching is off."""
+        if not self.cache_dir:
+            return None
+        return osp.join(self.cache_dir, self.get_cache_key())
 
     @classmethod
     def from_yaml(cls, yaml_path: str) -> 'StreamingConfig':
@@ -81,7 +106,8 @@ class StreamingConfig:
         # Handle top-level keys
         for key in ['data_source', 'repo_id', 'file_path', 'buffer_size',
                     'im_shape', 'mean', 'num_classes', 'batch_size', 'num_workers',
-                    'image_archive_path', 'annotation_archive_path', 'anno_list_path']:
+                    'image_archive_path', 'annotation_archive_path', 'anno_list_path',
+                    'chunk_size', 'log_interval', 'max_retries', 'cache_dir']:
             if key in config_dict:
                 flat_config[key] = config_dict[key]
 
@@ -130,6 +156,16 @@ class StreamingConfig:
             config.batch_size = args.batch_size
         if hasattr(args, 'num_classes') and args.num_classes:
             config.num_classes = args.num_classes
+
+        # Streaming tuning
+        if hasattr(args, 'chunk_size') and args.chunk_size:
+            config.chunk_size = args.chunk_size
+        if hasattr(args, 'log_interval') and args.log_interval is not None:
+            config.log_interval = args.log_interval
+        if hasattr(args, 'max_retries') and args.max_retries is not None:
+            config.max_retries = args.max_retries
+        if hasattr(args, 'cache_dir') and args.cache_dir:
+            config.cache_dir = args.cache_dir
 
         return config
 
@@ -188,3 +224,12 @@ class StreamingConfig:
 
         if len(self.mean) != 3:
             raise ValueError(f"mean must have 3 values [B, G, R], got: {self.mean}")
+
+        if self.chunk_size <= 0:
+            raise ValueError(f"chunk_size must be positive, got: {self.chunk_size}")
+
+        if self.log_interval < 0:
+            raise ValueError(f"log_interval must be non-negative, got: {self.log_interval}")
+
+        if self.max_retries < 0:
+            raise ValueError(f"max_retries must be non-negative, got: {self.max_retries}")
