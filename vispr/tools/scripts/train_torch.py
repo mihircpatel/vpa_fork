@@ -54,6 +54,7 @@ def train_one_epoch(model, device, loader, optimizer, criterion, epoch, log_inte
     model.train()
     running_loss = 0.0
     running_correct = 0.0
+    total_batches = 0
     for batch_idx, (data, target) in enumerate(loader):
         data = data.to(device).float()
         target = target.to(device).float()
@@ -67,9 +68,12 @@ def train_one_epoch(model, device, loader, optimizer, criterion, epoch, log_inte
         optimizer.step()
 
         running_loss += loss.item()
+        total_batches += 1
         if batch_idx % log_interval == 0 and batch_idx > 0:
-            print(f'Epoch {epoch} [{batch_idx}/{len(loader)}] Loss: {running_loss / (batch_idx+1):.4f}')
-    train_loss = running_loss / len(loader)
+            # print(f'Epoch {epoch} [{batch_idx}/{len(loader)}] Loss: {running_loss / (batch_idx+1):.4f}')
+            print(f'Epoch {epoch} [{batch_idx}/{total_batches}] Loss: {running_loss / (batch_idx + 1):.4f}')
+    # train_loss = running_loss / len(loader)
+    train_loss = running_loss / total_batches
     # train_acc = running_correct / len(loader)
     return train_loss
 
