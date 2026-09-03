@@ -1,8 +1,9 @@
-"""PyTorch Dataset adapter for streaming tar archives from Hugging Face Hub.
+"""PyTorch Dataset adapter for streaming tar archives.
 
-Provides a drop-in replacement for PAPDataset that streams data instead of
-loading from local disk. Supports optional record-level caching to avoid
-repeated streaming on subsequent runs.
+Provides a drop-in replacement for PAPDataset that streams data from tar.gz
+archives instead of loading from individual local files. Supports streaming
+from both Hugging Face Hub (remote) and local disk, with optional
+record-level caching to avoid repeated streaming on subsequent runs.
 """
 import os
 import random
@@ -20,17 +21,19 @@ from vispr.torch_utils.transformer import SimpleTransformer
 
 from .hf_tar_streamer import HFTarStreamer
 from .dual_archive_streamer import HFDualArchiveStreamer
+from .local_tar_streamer import LocalTarStreamer
 from .config import StreamingConfig
 
 logger = logging.getLogger(__name__)
 
 
 class StreamingPAPDataset(IterableDataset):
-    """Streaming PyTorch Dataset that loads data from HF tar archives.
+    """Streaming PyTorch Dataset that loads data from tar archives.
 
-    This dataset streams .tar.gz archives from Hugging Face Hub without
-    downloading to disk, making it suitable for environments with limited
-    disk space (e.g., Google Colab).
+    This dataset streams .tar.gz archives without writing them to a directory
+    tree on disk, making it suitable for environments with limited disk space.
+    It supports reading from Hugging Face Hub (`data_source='hf_tar_stream'`)
+    or from local disk (`data_source='local_tar_stream'`).
 
     It maintains an in-memory shuffle buffer for randomization during training.
     Optionally caches processed records locally to avoid re-streaming.
@@ -48,7 +51,7 @@ class StreamingPAPDataset(IterableDataset):
         """Initialize streaming dataset.
 
         Args:
-            config: StreamingConfig with HF repo and file information
+            config: StreamingConfig with archive and source information
             im_shape: Image shape as (height, width). Defaults to config.im_shape
             transform: Image transformer. If None, uses SimpleTransformer with config.mean
             shuffle: Whether to shuffle data using buffer
@@ -79,8 +82,33 @@ class StreamingPAPDataset(IterableDataset):
         self._cache_path = config.get_cache_path()
         self._cache_enabled = self._cache_path is not None
 
-        # Initialize streamer based on mode (dual archive vs combined archive)
-        if config.is_dual_archive_mode():
+        # Initialize streamer based on mode (dual vs combined) and source (local vs remote)
+        is_local = config.is_local_streaming_mode()
+        if is_local:
+            if config.is_dual_archive_mode():
+                self.streamer = LocalTarStreamer(
+                    image_archive_path=config.image_archive_path,
+                    annotation_archive_path=config.annotation_archive_path,
+                    anno_list_path=config.anno_list_path,
+                )
+                logger.info(
+                    f"Initialized StreamingPAPDataset (local dual archive mode): "
+                    f"images={config.image_archive_path}, "
+                    f"annotations={config.annotation_archive_path}, "
+                    f"anno_list={config.anno_list_path}, buffer_size={self.buffer_size}, "
+                    f"shuffle={shuffle}, cache={'on' if self._cache_enabled else 'off'}"
+                )
+            else:
+                self.streamer = LocalTarStreamer(
+                    file_path=config.file_path,
+                )
+                logger.info(
+                    f"Initialized StreamingPAPDataset (local combined archive mode): "
+                    f"file={config.file_path}, "
+                    f"buffer_size={self.buffer_size}, shuffle={shuffle}, "
+                    f"cache={'on' if self._cache_enabled else 'off'}"
+                )
+        elif config.is_dual_archive_mode():
             self.streamer = HFDualArchiveStreamer(
                 repo_id=config.repo_id,
                 image_archive_path=config.image_archive_path,
@@ -89,7 +117,7 @@ class StreamingPAPDataset(IterableDataset):
                 max_retries=config.max_retries,
             )
             logger.info(
-                f"Initialized StreamingPAPDataset (dual archive mode): "
+                f"Initialized StreamingPAPDataset (HF dual archive mode): "
                 f"repo={config.repo_id}, images={config.image_archive_path}, "
                 f"annotations={config.annotation_archive_path}, "
                 f"anno_list={config.anno_list_path}, buffer_size={self.buffer_size}, "
@@ -102,7 +130,7 @@ class StreamingPAPDataset(IterableDataset):
                 max_retries=config.max_retries,
             )
             logger.info(
-                f"Initialized StreamingPAPDataset (combined archive mode): "
+                f"Initialized StreamingPAPDataset (HF combined archive mode): "
                 f"repo={config.repo_id}, file={config.file_path}, "
                 f"buffer_size={self.buffer_size}, shuffle={shuffle}, "
                 f"cache={'on' if self._cache_enabled else 'off'}"
@@ -227,7 +255,8 @@ class StreamingPAPDataset(IterableDataset):
         """Iterate over dataset samples.
 
         If cache is enabled and populated, reads from cache.
-        Otherwise streams from HF Hub and optionally populates cache.
+        Otherwise streams from the configured source (HF Hub or local archive)
+        and optionally populates cache.
 
         Yields:
             Tuple of (image_tensor, label_tensor) or (image_tensor, label_tensor, image_path)
@@ -255,7 +284,7 @@ class StreamingPAPDataset(IterableDataset):
             )
             return
 
-        # Stream from HF Hub
+        # Stream from the configured source
         record_iterator = self.streamer.extract_structured_data()
 
         if self.shuffle:

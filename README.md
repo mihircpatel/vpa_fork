@@ -16,6 +16,7 @@ This is a complete PyTorch implementation of a multi-label visual attribute pred
 - ✓ Simple Python API for inference
 - ✓ Batch processing capabilities
 - ✓ Environment variable configuration (no hardcoded paths)
+- ✓ Optional tar.gz streaming from Hugging Face Hub or local disk
 
 ---
 
@@ -78,10 +79,12 @@ print(probs)  # Array of 68 attribute probabilities
 
 | Task | Command |
 |------|---------|
-| Train | `python vispr\\tools\\scripts\\train_torch.py --infile train.txt --valfile val.txt --epochs 20` |
-| Inference | `python vispr\\tools\\scripts\\attribute_predict_torch.py --infile test.txt --weights model.pth --outfile pred.jsonl` |
-| Evaluate | `python vispr\\tools\\scripts\\evaluate.py pred.jsonl --class_scores metrics.tsv` |
-| Export ONNX | `python vispr\\tools\\scripts\\export_to_onnx.py --weights model.pth --output model.onnx` |
+| Train (local files) | `python vispr\tools\scripts\train_torch.py --infile train.txt --valfile val.txt --epochs 20` |
+| Train (HF streaming) | `python vispr\tools\scripts\train_torch.py --data-source hf_tar_stream --hf-repo user/dataset --hf-file-path train.tar.gz --epochs 20` |
+| Train (local tar streaming) | `python vispr\tools\scripts\train_torch.py --data-source local_tar_stream --local-file-path ./data/train.tar.gz --epochs 20` |
+| Inference | `python vispr\tools\scripts\attribute_predict_torch.py --infile test.txt --weights model.pth --outfile pred.jsonl` |
+| Evaluate | `python vispr\tools\scripts\evaluate.py pred.jsonl --class_scores metrics.tsv` |
+| Export ONNX | `python vispr\tools\scripts\export_to_onnx.py --weights model.pth --output model.onnx` |
 
 ---
 
@@ -102,6 +105,7 @@ This repository was recently migrated from Caffe to PyTorch to be more accessibl
 - Pure PyTorch training/inference (no Caffe install needed)
 - Simpler data API (standard PyTorch Dataset)
 - ONNX export support for cross-platform deployment
+- Tar.gz streaming from Hugging Face Hub or local disk (no extraction needed)
 - Modern Python 3 codebase
 - Easy local inference with AttributePredictor wrapper
 

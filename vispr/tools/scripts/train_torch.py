@@ -3,7 +3,10 @@
 Trains a torchvision backbone with a linear head for multi-label
 classification using BCEWithLogitsLoss.
 
-Supports both local data loading and streaming from Hugging Face Hub.
+Supports three data loading modes:
+- 'local': loads from individual JSON annotation files (original behavior)
+- 'hf_tar_stream': streams .tar.gz archives from Hugging Face Hub
+- 'local_tar_stream': streams .tar.gz archives from local disk
 """
 import argparse
 import os
@@ -139,8 +142,9 @@ def validate(model, device, loader):
 def main():
     parser = argparse.ArgumentParser()
     # Data source configuration
-    parser.add_argument('--data-source', default='local', choices=['local', 'hf_tar_stream'],
-                        help='Data source: "local" for local files or "hf_tar_stream" for HuggingFace streaming')
+    parser.add_argument('--data-source', default='local',
+                        choices=['local', 'hf_tar_stream', 'local_tar_stream'],
+                        help='Data source: "local" for local files, "hf_tar_stream" for HuggingFace streaming, "local_tar_stream" for local tar.gz streaming')
     parser.add_argument('--config', default=None, help='Path to YAML config file (optional)')
 
     # Local data arguments
@@ -159,6 +163,18 @@ def main():
     parser.add_argument('--hf-val-image-archive', default=None, help='Path to validation image .tar.gz')
     parser.add_argument('--hf-val-anno-archive', default=None, help='Path to validation annotation .tar.gz')
     parser.add_argument('--hf-val-anno-list', default=None, help='Path to validation annotation list .txt')
+
+    # Local tar streaming arguments - Combined archive mode
+    parser.add_argument('--local-file-path', default=None, help='Path to a local combined .tar.gz archive')
+    parser.add_argument('--local-val-file-path', default=None, help='Path to a local validation .tar.gz archive')
+
+    # Local tar streaming arguments - Dual archive mode
+    parser.add_argument('--local-image-archive', default=None, help='Path to a local image .tar.gz archive')
+    parser.add_argument('--local-anno-archive', default=None, help='Path to a local annotation .tar.gz archive')
+    parser.add_argument('--local-anno-list', default=None, help='Path to a local .txt file listing annotations to load')
+    parser.add_argument('--local-val-image-archive', default=None, help='Path to a local validation image .tar.gz')
+    parser.add_argument('--local-val-anno-archive', default=None, help='Path to a local validation annotation .tar.gz')
+    parser.add_argument('--local-val-anno-list', default=None, help='Path to a local validation annotation list .txt')
 
     # Common streaming settings
     parser.add_argument('--buffer-size', type=int, default=1000, help='Shuffle buffer size for streaming')
@@ -211,6 +227,18 @@ def main():
                 config.annotation_archive_path = args.hf_anno_archive
             if args.hf_anno_list:
                 config.anno_list_path = args.hf_anno_list
+
+            # Local tar streaming - combined archive mode
+            if args.local_file_path:
+                config.file_path = args.local_file_path
+
+            # Local tar streaming - dual archive mode
+            if args.local_image_archive:
+                config.image_archive_path = args.local_image_archive
+            if args.local_anno_archive:
+                config.annotation_archive_path = args.local_anno_archive
+            if args.local_anno_list:
+                config.anno_list_path = args.local_anno_list
 
             # Common settings
             if args.buffer_size:
@@ -340,6 +368,72 @@ def main():
         loader = DataLoader(dataset, batch_size=args.batch_size, num_workers=0)
         print(f'Streaming dataset from HF Hub')
 
+    elif data_source == 'local_tar_stream':
+        if not STREAMING_AVAILABLE:
+            raise ImportError(
+                "Streaming module not available. Install dependencies with:\n"
+                "pip install huggingface_hub PyYAML"
+            )
+
+        # Create config from args if not loaded from file
+        if config is None:
+            # Detect mode: dual archive or combined archive
+            is_dual_mode = (args.local_image_archive or args.local_anno_archive or args.local_anno_list)
+
+            if is_dual_mode:
+                # Dual archive mode
+                if not all([args.local_image_archive, args.local_anno_archive, args.local_anno_list]):
+                    raise ValueError(
+                        "For local dual archive mode, --local-image-archive, --local-anno-archive, "
+                        "and --local-anno-list are all required"
+                    )
+
+                config = StreamingConfig(
+                    data_source='local_tar_stream',
+                    image_archive_path=args.local_image_archive,
+                    annotation_archive_path=args.local_anno_archive,
+                    anno_list_path=args.local_anno_list,
+                    buffer_size=args.buffer_size,
+                    batch_size=args.batch_size,
+                    num_classes=args.num_classes,
+                    chunk_size=args.chunk_size,
+                    log_interval=args.log_interval,
+                    max_retries=args.max_retries,
+                    cache_dir=args.cache_dir,
+                )
+            else:
+                # Combined archive mode
+                if not args.local_file_path:
+                    raise ValueError("For local combined archive mode, --local-file-path is required")
+
+                config = StreamingConfig(
+                    data_source='local_tar_stream',
+                    file_path=args.local_file_path,
+                    buffer_size=args.buffer_size,
+                    batch_size=args.batch_size,
+                    num_classes=args.num_classes,
+                    chunk_size=args.chunk_size,
+                    log_interval=args.log_interval,
+                    max_retries=args.max_retries,
+                    cache_dir=args.cache_dir,
+                )
+
+        config.validate()
+
+        # Print mode information
+        if config.is_dual_archive_mode():
+            print(f"Using local tar streaming (dual archive mode):")
+            print(f"  Images: {config.image_archive_path}")
+            print(f"  Annotations: {config.annotation_archive_path}")
+            print(f"  Anno list: {config.anno_list_path}")
+        else:
+            print(f"Using local tar streaming (combined archive mode):")
+            print(f"  File: {config.file_path}")
+
+        dataset = StreamingPAPDataset(config=config, shuffle=True)
+        loader = DataLoader(dataset, batch_size=args.batch_size, num_workers=0)
+        print(f'Streaming dataset from local archives')
+
     else:
         # Local data loading (original behavior)
         if not args.infile:
@@ -407,6 +501,54 @@ def main():
                 val_dataset = StreamingPAPDataset(config=val_config, shuffle=False)
                 val_loader = DataLoader(val_dataset, batch_size=args.batch_size, num_workers=0)
                 print(f'Streaming validation dataset from HF Hub (combined archive mode)')
+
+    elif data_source == 'local_tar_stream':
+        if not STREAMING_AVAILABLE:
+            print("Warning: Streaming not available, skipping validation")
+        else:
+            # Detect dual archive mode for local validation
+            has_dual_val = (args.local_val_image_archive or args.local_val_anno_archive or args.local_val_anno_list)
+            has_combined_val = args.local_val_file_path
+
+            if has_dual_val:
+                # Dual archive mode validation
+                if not all([args.local_val_image_archive, args.local_val_anno_archive, args.local_val_anno_list]):
+                    print("Warning: For local dual archive validation, all of --local-val-image-archive, "
+                          "--local-val-anno-archive, and --local-val-anno-list are required. Skipping validation.")
+                else:
+                    val_config = StreamingConfig(
+                        data_source='local_tar_stream',
+                        image_archive_path=args.local_val_image_archive,
+                        annotation_archive_path=args.local_val_anno_archive,
+                        anno_list_path=args.local_val_anno_list,
+                        buffer_size=args.buffer_size,
+                        batch_size=args.batch_size,
+                        num_classes=args.num_classes,
+                        chunk_size=args.chunk_size,
+                        log_interval=args.log_interval,
+                        max_retries=args.max_retries,
+                        cache_dir=args.cache_dir,
+                    )
+                    val_dataset = StreamingPAPDataset(config=val_config, shuffle=False)
+                    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, num_workers=0)
+                    print(f'Streaming validation dataset from local archives (dual archive mode)')
+
+            elif has_combined_val:
+                # Combined archive mode validation
+                val_config = StreamingConfig(
+                    data_source='local_tar_stream',
+                    file_path=args.local_val_file_path,
+                    buffer_size=args.buffer_size,
+                    batch_size=args.batch_size,
+                    num_classes=args.num_classes,
+                    chunk_size=args.chunk_size,
+                    log_interval=args.log_interval,
+                    max_retries=args.max_retries,
+                    cache_dir=args.cache_dir,
+                )
+                val_dataset = StreamingPAPDataset(config=val_config, shuffle=False)
+                val_loader = DataLoader(val_dataset, batch_size=args.batch_size, num_workers=0)
+                print(f'Streaming validation dataset from local archives (combined archive mode)')
 
     elif data_source == 'local' and args.valfile:
         val_dataset = PAPDataset(args.valfile, im_shape=(224, 224))

@@ -1,0 +1,7 @@
+Role: Senior AI Architect and PyTorch Engineer.
+Task: Implement the following changes to the previous implementation of the independent, modular data loader that streams a `.tar.gz` dataset archive directly from a Hugging Face repository:
+Code Updates requirements after initial implementation:
+1. Update the previous changes to stream the data from local storage in same machine instead download it fro remote storage like huggingface.
+2. Make this change configurable via a parameter or external config file in the data loader class, allowing users to switch between streaming from local storage and downloading from remote storage.
+3. Make the changes without breaking existing flow and functionality.
+4. It's like same functinality as previous task but now the data is streamed from local storage instead of remote storage.

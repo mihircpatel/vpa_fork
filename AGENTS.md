@@ -19,6 +19,9 @@ python vispr\tools\scripts\train_torch.py --infile train.txt --valfile val.txt -
 # Train (HF streaming with caching)
 python vispr\tools\scripts\train_torch.py --data-source hf_tar_stream --hf-repo user/dataset --hf-file-path train.tar.gz --cache-dir ./stream_cache --max-retries 5
 
+# Train (local tar streaming, no extraction needed)
+python vispr\tools\scripts\train_torch.py --data-source local_tar_stream --local-file-path ./data/train.tar.gz --epochs 10
+
 # Inference
 python vispr\tools\scripts\attribute_predict_torch.py --infile test.txt --weights model.pth --outfile predictions.jsonl
 
@@ -44,8 +47,8 @@ vispr/
   torch_utils/transformer.py  # SimpleTransformer (RGB→BGR, mean subtract, HWC→CHW)
   tools/scripts/           # train, inference, evaluate, export scripts
   tools/common/utils.py    # load_attributes(), labels_to_vec()
-data/tar_streaming/        # HuggingFace tar.gz streaming module (isolated, optional)
-configs/data_config.yaml   # data_source toggle: "local" vs "hf_tar_stream"
+data/tar_streaming/        # Tar.gz streaming module (HF Hub & local disk, isolated, optional)
+configs/data_config.yaml   # data_source toggle: "local" vs "hf_tar_stream" vs "local_tar_stream"
 ```
 
 ## Gotchas

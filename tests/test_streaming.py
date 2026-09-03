@@ -113,7 +113,9 @@ def _make_dual_archive(tmpdir):
     for i in range(3):
         name = f'img{i}.jpg'
         img_members.append((name, _make_image_bytes()))
-        anno = _make_annotation(name, [f'a{i}_safe'])
+        # Use valid attribute IDs from attributes.tsv
+        # Valid: a0_safe, a1_age_approx, a2_weight_approx, a3_height_approx, a4_gender, ...
+        anno = _make_annotation(name, ['a0_safe'])
         anno_json = f'img{i}.json'
         anno_members.append((anno_json, json.dumps(anno).encode()))
         anno_list.append(anno_json)
@@ -686,6 +688,316 @@ class TestExtractLabels:
         )
         labels = streamer._extract_labels({})
         assert labels == []
+
+
+# ---------------------------------------------------------------------------
+# Local Tar Streaming Tests
+# ---------------------------------------------------------------------------
+
+class TestLocalTarStreamerConfig:
+    """Tests for StreamingConfig with data_source='local_tar_stream'."""
+
+    def test_is_local_streaming_mode(self):
+        from data.tar_streaming.config import StreamingConfig
+        cfg = StreamingConfig(data_source='local_tar_stream', file_path='data.tar.gz')
+        assert cfg.is_local_streaming_mode() is True
+
+    def test_not_local_streaming_mode(self):
+        from data.tar_streaming.config import StreamingConfig
+        cfg = StreamingConfig(data_source='hf_tar_stream', repo_id='u/r', file_path='f.tar.gz')
+        assert cfg.is_local_streaming_mode() is False
+
+    def test_local_combined_valid(self):
+        """Local combined archive config should validate without raising."""
+        from data.tar_streaming.config import StreamingConfig
+        tmpdir = tempfile.mkdtemp()
+        try:
+            archive_path = os.path.join(tmpdir, 'data.tar.gz')
+            _create_tar_gz([], archive_path)
+            cfg = StreamingConfig(data_source='local_tar_stream', file_path=archive_path)
+            cfg.validate()  # should not raise
+        finally:
+            shutil.rmtree(tmpdir)
+
+    def test_local_dual_valid(self):
+        """Local dual archive config should validate without raising."""
+        from data.tar_streaming.config import StreamingConfig
+        tmpdir = tempfile.mkdtemp()
+        try:
+            img_archive = os.path.join(tmpdir, 'images.tar.gz')
+            anno_archive = os.path.join(tmpdir, 'annotations.tar.gz')
+            list_path = os.path.join(tmpdir, 'anno_list.txt')
+            _create_tar_gz([], img_archive)
+            _create_tar_gz([], anno_archive)
+            with open(list_path, 'w') as f:
+                f.write('img1.json\n')
+            cfg = StreamingConfig(
+                data_source='local_tar_stream',
+                image_archive_path=img_archive,
+                annotation_archive_path=anno_archive,
+                anno_list_path=list_path,
+            )
+            cfg.validate()  # should not raise
+        finally:
+            shutil.rmtree(tmpdir)
+
+    def test_local_repo_id_not_required(self):
+        """repo_id should NOT be required for local_tar_stream."""
+        from data.tar_streaming.config import StreamingConfig
+        tmpdir = tempfile.mkdtemp()
+        try:
+            archive_path = os.path.join(tmpdir, 'data.tar.gz')
+            _create_tar_gz([], archive_path)
+            cfg = StreamingConfig(
+                data_source='local_tar_stream',
+                file_path=archive_path,
+            )
+            cfg.validate()  # should not raise, no repo_id needed
+        finally:
+            shutil.rmtree(tmpdir)
+
+    def test_local_missing_file_path_raises(self):
+        """Missing file_path for combined local mode should raise ValueError."""
+        from data.tar_streaming.config import StreamingConfig
+        cfg = StreamingConfig(data_source='local_tar_stream')
+        with pytest.raises(ValueError, match="file_path is required"):
+            cfg.validate()
+
+    def test_local_archive_not_found_raises(self):
+        """Non-existent local archive path should raise FileNotFoundError."""
+        from data.tar_streaming.config import StreamingConfig
+        cfg = StreamingConfig(
+            data_source='local_tar_stream',
+            file_path='/nonexistent/data.tar.gz',
+        )
+        with pytest.raises(FileNotFoundError, match="Local archive not found"):
+            cfg.validate()
+
+    def test_local_dual_missing_image_archive_raises(self):
+        """Missing image_archive_path for local dual mode should raise ValueError."""
+        from data.tar_streaming.config import StreamingConfig
+        cfg = StreamingConfig(
+            data_source='local_tar_stream',
+            annotation_archive_path='annos.tar.gz',
+            anno_list_path='list.txt',
+        )
+        with pytest.raises(ValueError, match="image_archive_path is required"):
+            cfg.validate()
+
+    def test_local_dual_missing_anno_list_raises(self):
+        """Missing anno_list_path for local dual mode should raise ValueError."""
+        from data.tar_streaming.config import StreamingConfig
+        cfg = StreamingConfig(
+            data_source='local_tar_stream',
+            image_archive_path='imgs.tar.gz',
+            annotation_archive_path='annos.tar.gz',
+        )
+        with pytest.raises(ValueError, match="anno_list_path is required"):
+            cfg.validate()
+
+    def test_cache_key_local_mode(self):
+        """Cache key should be stable for local_tar_stream configs."""
+        from data.tar_streaming.config import StreamingConfig
+        cfg1 = StreamingConfig(data_source='local_tar_stream', file_path='/data/train.tar.gz')
+        cfg2 = StreamingConfig(data_source='local_tar_stream', file_path='/data/train.tar.gz')
+        assert cfg1.get_cache_key() == cfg2.get_cache_key()
+
+    def test_cache_key_differs_local_vs_hf(self):
+        """Cache keys should differ between local and HF modes."""
+        from data.tar_streaming.config import StreamingConfig
+        cfg_local = StreamingConfig(data_source='local_tar_stream', file_path='train.tar.gz')
+        cfg_hf = StreamingConfig(data_source='hf_tar_stream', repo_id='u/r', file_path='train.tar.gz')
+        assert cfg_local.get_cache_key() != cfg_hf.get_cache_key()
+
+
+class TestLocalTarStreamerCombined:
+    """Tests for LocalTarStreamer combined archive mode."""
+
+    def test_extract_combined_archive(self):
+        """Extract records from a local combined .tar.gz archive."""
+        from data.tar_streaming.local_tar_streamer import LocalTarStreamer
+
+        tmpdir, archive_path, _ = _make_dummy_archive()
+        try:
+            streamer = LocalTarStreamer(file_path=archive_path)
+            records = list(streamer.extract_structured_data())
+            assert len(records) >= 2
+            for rec in records:
+                assert 'image' in rec
+                assert 'image_path' in rec
+                assert 'labels' in rec
+                assert isinstance(rec['image'], Image.Image)
+        finally:
+            shutil.rmtree(tmpdir)
+
+    def test_record_has_labels(self):
+        """Records from combined archive should contain labels."""
+        from data.tar_streaming.local_tar_streamer import LocalTarStreamer
+
+        # Create archive with flat paths so annotation image_path matches archive member names
+        # Use valid attribute IDs from attributes.tsv
+        tmpdir = tempfile.mkdtemp(prefix='stream_test_')
+        archive_path = os.path.join(tmpdir, 'data.tar.gz')
+        members = []
+        img_bytes = _make_image_bytes()
+        anno = _make_annotation('img1.jpg', ['a0_safe', 'a3_height_approx'])
+        members.append(('img1.jpg', img_bytes))
+        members.append(('img1.json', json.dumps(anno).encode()))
+        img_bytes2 = _make_image_bytes()
+        anno2 = _make_annotation('img2.jpg', ['a1_age_approx'])
+        members.append(('img2.jpg', img_bytes2))
+        members.append(('img2.json', json.dumps(anno2).encode()))
+        _create_tar_gz(members, archive_path)
+
+        try:
+            streamer = LocalTarStreamer(file_path=archive_path)
+            records = list(streamer.extract_structured_data())
+            all_labels = set()
+            for rec in records:
+                all_labels.update(rec.get('labels', []))
+            assert 'a0_safe' in all_labels
+            assert 'a1_age_approx' in all_labels
+        finally:
+            shutil.rmtree(tmpdir)
+
+    def test_stats_after_extraction(self):
+        """Stats should be populated after streaming."""
+        from data.tar_streaming.local_tar_streamer import LocalTarStreamer
+
+        tmpdir, archive_path, _ = _make_dummy_archive()
+        try:
+            streamer = LocalTarStreamer(file_path=archive_path)
+            list(streamer.extract_structured_data())
+            stats = streamer.stats()
+            assert stats['processed'] > 0
+        finally:
+            shutil.rmtree(tmpdir)
+
+
+class TestLocalTarStreamerDual:
+    """Tests for LocalTarStreamer dual archive mode."""
+
+    def test_extract_dual_archive(self):
+        """Extract records from separate local image and annotation archives."""
+        from data.tar_streaming.local_tar_streamer import LocalTarStreamer
+
+        tmpdir = tempfile.mkdtemp()
+        try:
+            img_archive, anno_archive, list_path = _make_dual_archive(tmpdir)
+
+            streamer = LocalTarStreamer(
+                image_archive_path=img_archive,
+                annotation_archive_path=anno_archive,
+                anno_list_path=list_path,
+            )
+            records = list(streamer.extract_structured_data())
+            assert len(records) == 3
+            for rec in records:
+                assert 'image' in rec
+                assert 'image_path' in rec
+                assert 'labels' in rec
+        finally:
+            shutil.rmtree(tmpdir)
+
+    def test_dual_extract_labels(self):
+        """Labels should be extracted from annotations."""
+        from data.tar_streaming.local_tar_streamer import LocalTarStreamer
+
+        tmpdir = tempfile.mkdtemp()
+        try:
+            img_archive, anno_archive, list_path = _make_dual_archive(tmpdir)
+            streamer = LocalTarStreamer(
+                image_archive_path=img_archive,
+                annotation_archive_path=anno_archive,
+                anno_list_path=list_path,
+            )
+            records = list(streamer.extract_structured_data())
+            all_labels = set()
+            for rec in records:
+                all_labels.update(rec.get('labels', []))
+            assert len(all_labels) > 0
+        finally:
+            shutil.rmtree(tmpdir)
+
+    def test_dual_stats(self):
+        """Stats should be populated after streaming."""
+        from data.tar_streaming.local_tar_streamer import LocalTarStreamer
+
+        tmpdir = tempfile.mkdtemp()
+        try:
+            img_archive, anno_archive, list_path = _make_dual_archive(tmpdir)
+            streamer = LocalTarStreamer(
+                image_archive_path=img_archive,
+                annotation_archive_path=anno_archive,
+                anno_list_path=list_path,
+            )
+            list(streamer.extract_structured_data())
+            stats = streamer.stats()
+            assert stats['processed'] > 0
+        finally:
+            shutil.rmtree(tmpdir)
+
+
+class TestStreamingPAPDatasetLocalTar:
+    """Tests for StreamingPAPDataset with local_tar_stream mode."""
+
+    def test_local_combined_dataset_iteration(self):
+        """StreamingPAPDataset should iterate through local combined archive."""
+        from data.tar_streaming.streaming_dataset import StreamingPAPDataset
+        from data.tar_streaming.config import StreamingConfig
+
+        # Use a local archive with flat paths (matching annotation image_path)
+        # and valid attribute IDs from attributes.tsv
+        tmpdir = tempfile.mkdtemp(prefix='stream_test_')
+        archive_path = os.path.join(tmpdir, 'data.tar.gz')
+        members = []
+        img_bytes = _make_image_bytes()
+        anno = _make_annotation('img1.jpg', ['a0_safe', 'a3_height_approx'])
+        members.append(('img1.jpg', img_bytes))
+        members.append(('img1.json', json.dumps(anno).encode()))
+        _create_tar_gz(members, archive_path)
+
+        attr_path = os.path.join(REPO_ROOT, 'vispr', 'datasets', 'attributes.tsv')
+        try:
+            cfg = StreamingConfig(
+                data_source='local_tar_stream',
+                file_path=archive_path,
+            )
+            cfg.validate()
+            dataset = StreamingPAPDataset(config=cfg, shuffle=False, attr_list_path=attr_path)
+            count = 0
+            for img_tensor, label_vec in dataset:
+                assert img_tensor.shape == (3, 224, 224)
+                count += 1
+            assert count == 1
+        finally:
+            shutil.rmtree(tmpdir)
+
+    def test_local_dual_dataset_iteration(self):
+        """StreamingPAPDataset should iterate through local dual archives."""
+        from data.tar_streaming.streaming_dataset import StreamingPAPDataset
+        from data.tar_streaming.config import StreamingConfig
+
+        tmpdir = tempfile.mkdtemp()
+        try:
+            img_archive, anno_archive, list_path = _make_dual_archive(tmpdir)
+
+            attr_path = os.path.join(REPO_ROOT, 'vispr', 'datasets', 'attributes.tsv')
+            cfg = StreamingConfig(
+                data_source='local_tar_stream',
+                image_archive_path=img_archive,
+                annotation_archive_path=anno_archive,
+                anno_list_path=list_path,
+            )
+            cfg.validate()
+            dataset = StreamingPAPDataset(config=cfg, shuffle=False, attr_list_path=attr_path)
+            count = 0
+            for img_tensor, label_vec in dataset:
+                assert img_tensor.shape == (3, 224, 224)
+                count += 1
+            assert count == 3
+        finally:
+            shutil.rmtree(tmpdir)
 
 
 # ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 # Data Configuration for VPA Training
-# Toggle between local data loading and HuggingFace tar streaming
+# Toggle between local data loading, HuggingFace tar streaming, and local tar streaming
 
-# Data source: "local" or "hf_tar_stream"
+# Data source: "local", "hf_tar_stream" or "local_tar_stream"
 data_source: "local"
 
 # Local data configuration (used when data_source: "local")
@@ -16,21 +16,24 @@ local:
 # 2. Dual archive mode: Separate .tar.gz files for images and annotations
 streaming:
   # Hugging Face repository ID (e.g., "username/dataset-name")
+  # Only required when data_source: "hf_tar_stream" (ignored in local_tar_stream mode)
   repo_id: null
 
   # === Combined Archive Mode ===
-  # Path to combined .tar.gz file (e.g., "train.tar.gz")
+  # Path to combined .tar.gz file (within HF repo for hf_tar_stream,
+  # or local filesystem path for local_tar_stream)
   file_path: null
 
   # === Dual Archive Mode ===
-  # Path to image .tar.gz file (e.g., "train2017_images.tar.gz")
+  # Path to image .tar.gz file
   image_archive_path: null
 
-  # Path to annotation .tar.gz file (e.g., "train2017_annotations.tar.gz")
+  # Path to annotation .tar.gz file
   annotation_archive_path: null
 
-  # Path to .txt file listing annotations to load (e.g., "train2017.txt")
-  # Can be in HF repo or local file
+  # Path to .txt file listing annotations to load
+  # For hf_tar_stream: this file can be in the HF repo or a local path
+  # For local_tar_stream: must be a local path
   anno_list_path: null
 
   # Number of samples to keep in memory for shuffling
@@ -96,3 +99,29 @@ data:
 #   Images: train2017/000000000001.jpg, train2017/000000000002.jpg, ...
 #   Annotations: train2017/000000000001.json, train2017/000000000002.json, ...
 #   Anno list (train2017.txt): One annotation path per line
+
+# --- Example 4: Local Tar Streaming (Combined Archive Mode) ---
+# Streams a local .tar.gz file directly, without extracting it to disk first.
+# data_source: "local_tar_stream"
+# streaming:
+#   file_path: "./datasets/train_combined.tar.gz"
+#   buffer_size: 1000
+#
+# Command-line equivalent:
+#   --data-source local_tar_stream
+#   --local-file-path ./datasets/train_combined.tar.gz
+
+# --- Example 5: Local Tar Streaming (Dual Archive Mode) ---
+# Uses separate local image and annotation .tar.gz archives.
+# data_source: "local_tar_stream"
+# streaming:
+#   image_archive_path: "./datasets/train_images.tar.gz"
+#   annotation_archive_path: "./datasets/train_annotations.tar.gz"
+#   anno_list_path: "./datasets/train_anno_list.txt"
+#   buffer_size: 1000
+#
+# Command-line equivalent:
+#   --data-source local_tar_stream
+#   --local-image-archive ./datasets/train_images.tar.gz
+#   --local-anno-archive ./datasets/train_annotations.tar.gz
+#   --local-anno-list ./datasets/train_anno_list.txt

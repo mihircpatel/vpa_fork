@@ -1,6 +1,11 @@
-"""Configuration module for HF Tar Streaming data loader.
+"""Configuration module for Tar Streaming data loader.
 
 Handles configuration from YAML files or command-line arguments.
+
+Supported data sources:
+- 'local': Original behavior - loads from individual JSON annotation files
+- 'hf_tar_stream': Streams tar.gz archives from Hugging Face Hub
+- 'local_tar_stream': Streams tar.gz archives from local disk
 """
 import hashlib
 import os
@@ -12,20 +17,32 @@ import os.path as osp
 
 @dataclass
 class StreamingConfig:
-    """Configuration for streaming tar.gz datasets from Hugging Face Hub.
+    """Configuration for streaming tar.gz datasets.
 
-    Supports two modes:
+    Supports three data sources:
+    1. 'local' - original local file loading (data_source='local')
+    2. 'hf_tar_stream' - stream tar.gz archives from Hugging Face Hub
+    3. 'local_tar_stream' - stream tar.gz archives from local disk
+
+    For both tar streaming sources, two archive layouts are supported:
     1. Combined archive mode: Images and annotations in single .tar.gz
     2. Dual archive mode: Separate .tar.gz files for images and annotations
 
+    When data_source='local_tar_stream', the archive path fields
+    (file_path / image_archive_path / annotation_archive_path / anno_list_path)
+    are interpreted as LOCAL filesystem paths instead of paths within an HF
+    repository, and repo_id is ignored.
+
     Attributes:
-        data_source: Source type - 'local' or 'hf_tar_stream'
+        data_source: Source type - 'local', 'hf_tar_stream' or 'local_tar_stream'
         repo_id: Hugging Face repository ID (e.g., 'username/dataset-name')
+            Only required/used when data_source='hf_tar_stream'.
 
-        # Combined archive mode (original)
-        file_path: Path to combined .tar.gz file within the repository
+        # Combined archive mode
+        file_path: Path to combined .tar.gz file (within repo for HF mode,
+            local filesystem path for local_tar_stream mode)
 
-        # Dual archive mode (new)
+        # Dual archive mode
         image_archive_path: Path to image .tar.gz file
         annotation_archive_path: Path to annotation .tar.gz file
         anno_list_path: Path to .txt file listing annotations to load
@@ -42,6 +59,7 @@ class StreamingConfig:
         chunk_size: Read chunk size in bytes for tar streaming (default 8MB)
         log_interval: Log progress every N records (0 to disable)
         max_retries: Max retries on network errors before giving up
+            (only relevant for hf_tar_stream mode)
         cache_dir: Local directory for record-level caching (None to disable)
     """
     data_source: str = "local"
@@ -69,9 +87,30 @@ class StreamingConfig:
     max_retries: int = 3
     cache_dir: Optional[str] = None
 
+    def is_local_streaming_mode(self) -> bool:
+        """Check if using local tar streaming (read from local disk).
+
+        Returns:
+            True if data_source == 'local_tar_stream', False otherwise.
+        """
+        return self.data_source == 'local_tar_stream'
+
     def get_cache_key(self) -> str:
         """Derive a stable directory name for local record caching."""
-        raw = f"{self.repo_id}:{self.file_path or ''}:{self.image_archive_path or ''}:{self.annotation_archive_path or ''}"
+        if self.is_local_streaming_mode():
+            # Local paths themselves form a stable key (no repo involved)
+            raw = (
+                f"local:{self.file_path or ''}:"
+                f"{self.image_archive_path or ''}:"
+                f"{self.annotation_archive_path or ''}:"
+                f"{self.anno_list_path or ''}"
+            )
+        else:
+            raw = (
+                f"{self.repo_id}:{self.file_path or ''}:"
+                f"{self.image_archive_path or ''}:"
+                f"{self.annotation_archive_path or ''}"
+            )
         return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
     def get_cache_path(self) -> Optional[str]:
@@ -134,14 +173,28 @@ class StreamingConfig:
         # Update from args if present
         if hasattr(args, 'data_source') and args.data_source:
             config.data_source = args.data_source
+
+        # HF remote streaming args
         if hasattr(args, 'hf_repo') and args.hf_repo:
             config.repo_id = args.hf_repo
 
-        # Combined archive mode
+        # Local tar streaming combined archive mode (data_source='local_tar_stream')
+        if hasattr(args, 'local_file_path') and args.local_file_path:
+            config.file_path = args.local_file_path
+
+        # Local tar streaming dual archive mode (data_source='local_tar_stream')
+        if hasattr(args, 'local_image_archive') and args.local_image_archive:
+            config.image_archive_path = args.local_image_archive
+        if hasattr(args, 'local_anno_archive') and args.local_anno_archive:
+            config.annotation_archive_path = args.local_anno_archive
+        if hasattr(args, 'local_anno_list') and args.local_anno_list:
+            config.anno_list_path = args.local_anno_list
+
+        # HF combined archive mode (data_source='hf_tar_stream')
         if hasattr(args, 'hf_file_path') and args.hf_file_path:
             config.file_path = args.hf_file_path
 
-        # Dual archive mode
+        # HF dual archive mode (data_source='hf_tar_stream')
         if hasattr(args, 'hf_image_archive') and args.hf_image_archive:
             config.image_archive_path = args.hf_image_archive
         if hasattr(args, 'hf_anno_archive') and args.hf_anno_archive:
@@ -184,13 +237,18 @@ class StreamingConfig:
 
         Raises:
             ValueError: If configuration is invalid
+            FileNotFoundError: If a required local archive path does not exist
         """
-        if self.data_source not in ['local', 'hf_tar_stream']:
-            raise ValueError(f"Invalid data_source: {self.data_source}. Must be 'local' or 'hf_tar_stream'")
+        if self.data_source not in ['local', 'hf_tar_stream', 'local_tar_stream']:
+            raise ValueError(
+                f"Invalid data_source: {self.data_source}. Must be "
+                f"'local', 'hf_tar_stream' or 'local_tar_stream'"
+            )
 
-        if self.data_source == 'hf_tar_stream':
-            if not self.repo_id:
-                raise ValueError("repo_id is required when data_source is 'hf_tar_stream'")
+        if self.data_source in ('hf_tar_stream', 'local_tar_stream'):
+            if self.data_source == 'hf_tar_stream':
+                if not self.repo_id:
+                    raise ValueError("repo_id is required when data_source is 'hf_tar_stream'")
 
             # Check if using dual archive mode or combined archive mode
             is_dual_mode = self.is_dual_archive_mode()
@@ -209,12 +267,26 @@ class StreamingConfig:
                     raise ValueError(f"image_archive_path must end with '.tar.gz', got: {self.image_archive_path}")
                 if not self.annotation_archive_path.endswith('.tar.gz'):
                     raise ValueError(f"annotation_archive_path must end with '.tar.gz', got: {self.annotation_archive_path}")
+
+                # For local streaming, verify the archives exist on disk
+                if self.is_local_streaming_mode():
+                    if not osp.exists(self.image_archive_path):
+                        raise FileNotFoundError(f"Local image archive not found: {self.image_archive_path}")
+                    if not osp.exists(self.annotation_archive_path):
+                        raise FileNotFoundError(f"Local annotation archive not found: {self.annotation_archive_path}")
+                    if not osp.exists(self.anno_list_path):
+                        raise FileNotFoundError(f"Local annotation list not found: {self.anno_list_path}")
             else:
                 # Combined archive mode validation
                 if not self.file_path:
                     raise ValueError("file_path is required for combined archive mode (or use dual archive mode)")
                 if not self.file_path.endswith('.tar.gz'):
                     raise ValueError(f"file_path must end with '.tar.gz', got: {self.file_path}")
+
+                # For local streaming, verify the archive exists on disk
+                if self.is_local_streaming_mode():
+                    if not osp.exists(self.file_path):
+                        raise FileNotFoundError(f"Local archive not found: {self.file_path}")
 
         if self.buffer_size <= 0:
             raise ValueError(f"buffer_size must be positive, got: {self.buffer_size}")
