@@ -15,7 +15,11 @@ import logging
 from huggingface_hub import HfFileSystem
 from PIL import Image
 
-logger = logging.getLogger(__name__)
+from vispr.tools.common.logger import get_logger
+# Per-flow logger; writes to logs/__train.log by default and mirrors to console.
+logger = get_logger('train')
+
+# logger = logging.getLogger(__name__)
 
 # Minimal file-header magic bytes for integrity checks
 _IMAGE_MAGIC = {
@@ -215,7 +219,8 @@ class HFTarStreamer:
                     image_path = annotation.get('image_path', '')
                     if image_path in image_cache:
                         record = self._create_record(
-                            image_path, image_cache.pop(image_path), annotation
+                            image_path, image_cache.pop(image_path), annotation,
+                            annotation_path=normalized_path,
                         )
                         if record:
                             yield record
@@ -238,7 +243,8 @@ class HFTarStreamer:
                     for json_path in potential_json_paths:
                         if json_path in annotation_cache:
                             annotation = annotation_cache.pop(json_path)
-                            record = self._create_record(normalized_path, image, annotation)
+                            record = self._create_record(normalized_path, image, annotation,
+                                                         annotation_path=json_path)
                             if record:
                                 yield record
                                 matched = True
@@ -254,7 +260,8 @@ class HFTarStreamer:
                                 normalized_path.endswith(anno_img_path)
                             ):
                                 annotation_cache.pop(anno_path)
-                                record = self._create_record(normalized_path, image, annotation)
+                                record = self._create_record(normalized_path, image, annotation,
+                                                             annotation_path=anno_path)
                                 if record:
                                     yield record
                                     image_cache.pop(normalized_path, None)
@@ -271,13 +278,15 @@ class HFTarStreamer:
                 yield record
 
     def _create_record(self, image_path: str, image: Image.Image,
-                       annotation: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+                       annotation: Optional[Dict[str, Any]],
+                       annotation_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Create a structured record from image and annotation.
 
         Args:
             image_path: Path to image in archive
             image: PIL Image object
             annotation: Parsed JSON annotation (optional)
+            annotation_path: Path to the annotation JSON file in the archive (optional)
 
         Returns:
             Structured record dictionary or None if invalid
@@ -298,12 +307,19 @@ class HFTarStreamer:
             record['labels'] = list(labels)
             record['annotation'] = annotation
 
+            # Use provided annotation_path, or derive from image_path
+            if annotation_path:
+                record['annotation_path'] = annotation_path
+            else:
+                record['annotation_path'] = str(Path(image_path).with_suffix('.json'))
+
             for key in ['safe', 'label_vec', 'image_id']:
                 if key in annotation:
                     record[key] = annotation[key]
         else:
             record['labels'] = []
             record['annotation'] = None
+            record['annotation_path'] = None
 
         return record
 

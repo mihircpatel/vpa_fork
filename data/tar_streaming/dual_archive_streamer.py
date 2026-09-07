@@ -20,7 +20,11 @@ from huggingface_hub import HfFileSystem
 from PIL import Image
 from vispr import DS_ROOT
 
-logger = logging.getLogger(__name__)
+from vispr.tools.common.logger import get_logger
+# Per-flow logger; writes to logs/__train.log by default and mirrors to console.
+logger = get_logger('train')
+
+# logger = logging.getLogger(__name__)
 
 
 class HFDualArchiveStreamer:
@@ -347,6 +351,7 @@ class HFDualArchiveStreamer:
                 'image': image,
                 'image_path': annotation.get('image_path', member_name),
                 'annotation': annotation,
+                'annotation_path': anno_data['original_path'],
                 'labels': labels,
                 'original_image_path': member_name,
                 'original_anno_path': anno_data['original_path']

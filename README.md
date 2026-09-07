@@ -22,6 +22,10 @@ This is a complete PyTorch implementation of a multi-label visual attribute pred
 
 ## Quick Start (5 minutes)
 
+### Set PYTHONPATH
+```powershell
+$env:PYTHONPATH = "$pwd;${env:PYTHONPATH}"
+```
 ### 1. Install
 
 ```powershell
@@ -70,6 +74,7 @@ print(probs)  # Array of 68 attribute probabilities
 ## Complete Documentation
 
 - **TRAINING_AND_DEPLOYMENT_GUIDE.md** — End-to-end step-by-step guide with examples
+- **INFERENCE_GUIDE.md** — Inference flow, output format, and data source options
 - **examples/inference_examples.py** — Code examples for different use cases
 - **requirements.txt** — Python dependencies
 

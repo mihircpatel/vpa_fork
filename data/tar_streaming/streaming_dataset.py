@@ -24,7 +24,11 @@ from .dual_archive_streamer import HFDualArchiveStreamer
 from .local_tar_streamer import LocalTarStreamer
 from .config import StreamingConfig
 
-logger = logging.getLogger(__name__)
+from vispr.tools.common.logger import get_logger
+# Per-flow logger; writes to logs/__train.log by default and mirrors to console.
+logger = get_logger('train')
+
+# logger = logging.getLogger(__name__)
 
 
 class StreamingPAPDataset(IterableDataset):
@@ -163,7 +167,8 @@ class StreamingPAPDataset(IterableDataset):
 
         image_tensor = torch.from_numpy(data.copy())
         label_tensor = torch.from_numpy(label_vec)
-        image_path = record.get('image_path', record.get('anno_path'))
+        # Prefer annotation_path (JSON file path) over image_path for inference output
+        image_path = record.get('annotation_path') or record.get('image_path') or record.get('anno_path')
 
         if self.return_metadata:
             return image_tensor, label_tensor, image_path

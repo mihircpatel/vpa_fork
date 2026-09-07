@@ -63,7 +63,50 @@ def main():
             pred_entry['pred_probs'] = np.asarray(dct['pred_probs'], dtype=float)
 
             # Read image_path and gt_labels from annotation
-            anno_path = dct['anno_path'] if osp.exists(dct['anno_path']) else osp.join(DS_ROOT, dct['anno_path'])
+            raw = dct['anno_path']
+            anno_path = None
+            # 1. Try as-is (already absolute and valid)
+            if osp.isfile(raw):
+                anno_path = raw
+            else:
+                # 2. Normalize (strip ./, resolve ..) and retry
+                normed = osp.normpath(raw)
+                if osp.isfile(normed):
+                    anno_path = normed
+                else:
+                    # 3. Try joining with DS_ROOT (for relative paths)
+                    for candidate in [osp.join(DS_ROOT, raw),
+                                      osp.join(DS_ROOT, normed)]:
+                        if osp.isfile(candidate):
+                            anno_path = candidate
+                            break
+            # 4. Fallback: search for basename in DS_ROOT subdirectories
+            if anno_path is None:
+                basename = osp.basename(raw)
+                for subdir in ['annotations', 'test2017_anno', 'val2017_anno',
+                               'train2017_anno']:
+                    candidate = osp.join(DS_ROOT, subdir, basename)
+                    if osp.isfile(candidate):
+                        anno_path = candidate
+                        break
+                # Walk one more level for nested dirs like annotations/test2017/
+                if anno_path is None:
+                    for subdir in ['annotations', 'test2017_anno', 'val2017_anno',
+                                   'train2017_anno']:
+                        sub_path = osp.join(DS_ROOT, subdir)
+                        if osp.isdir(sub_path):
+                            for nested in os.listdir(sub_path):
+                                candidate = osp.join(sub_path, nested, basename)
+                                if osp.isfile(candidate):
+                                    anno_path = candidate
+                                    break
+                        if anno_path is not None:
+                            break
+            if anno_path is None:
+                raise FileNotFoundError(
+                    f"Cannot find annotation file for prediction entry.\n"
+                    f"  raw anno_path : {raw}\n"
+                    f"  DS_ROOT       : {DS_ROOT}")
             with open(anno_path) as jf:
                 anno = json.load(jf)
 

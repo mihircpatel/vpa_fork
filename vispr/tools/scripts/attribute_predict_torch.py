@@ -4,6 +4,14 @@ This script is a lightweight replacement for the original Caffe-based
 `attribute_predict.py`. It uses a PyTorch model (e.g., torchvision backbone
 with a final linear layer) to compute per-attribute probabilities.
 
+Output is a JSONL file with one entry per image:
+    {"anno_path": "<path_to_annotation_json>", "pred_probs": [<68 floats>]}
+
+Supports three data loading modes:
+- 'local': loads from individual JSON annotation files (original behavior)
+- 'hf_tar_stream': streams .tar.gz archives from Hugging Face Hub
+- 'local_tar_stream': streams .tar.gz archives from local disk
+
 Example usage:
     python attribute_predict_torch.py --arch resnet50 --weights my_model.pth \
         --infile test2017.txt --outfile preds.jsonl --batch-size 32 --num-classes 68

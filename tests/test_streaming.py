@@ -938,6 +938,74 @@ class TestLocalTarStreamerDual:
             shutil.rmtree(tmpdir)
 
 
+class TestAnnotationPathField:
+    """Tests that annotation_path is correctly set in streaming records."""
+
+    def test_combined_archive_has_annotation_path(self):
+        """Records from combined archive should have annotation_path field."""
+        from data.tar_streaming.local_tar_streamer import LocalTarStreamer
+
+        tmpdir = tempfile.mkdtemp()
+        archive_path = os.path.join(tmpdir, 'data.tar.gz')
+        members = []
+        img_bytes = _make_image_bytes()
+        anno = _make_annotation('img1.jpg', ['a0_safe'])
+        members.append(('img1.jpg', img_bytes))
+        members.append(('img1.json', json.dumps(anno).encode()))
+        _create_tar_gz(members, archive_path)
+
+        try:
+            streamer = LocalTarStreamer(file_path=archive_path)
+            records = list(streamer.extract_structured_data())
+            assert len(records) >= 1
+            rec = records[0]
+            assert 'annotation_path' in rec
+            assert rec['annotation_path'] == 'img1.json'
+            assert rec['annotation_path'].endswith('.json')
+        finally:
+            shutil.rmtree(tmpdir)
+
+    def test_dual_archive_has_annotation_path(self):
+        """Records from dual archive should have annotation_path field."""
+        from data.tar_streaming.local_tar_streamer import LocalTarStreamer
+
+        tmpdir = tempfile.mkdtemp()
+        try:
+            img_archive, anno_archive, list_path = _make_dual_archive(tmpdir)
+            streamer = LocalTarStreamer(
+                image_archive_path=img_archive,
+                annotation_archive_path=anno_archive,
+                anno_list_path=list_path,
+            )
+            records = list(streamer.extract_structured_data())
+            assert len(records) >= 1
+            rec = records[0]
+            assert 'annotation_path' in rec
+            assert rec['annotation_path'].endswith('.json')
+        finally:
+            shutil.rmtree(tmpdir)
+
+    def test_unmatched_image_has_no_annotation_path(self):
+        """Unmatched images should have annotation_path=None."""
+        from data.tar_streaming.local_tar_streamer import LocalTarStreamer
+
+        tmpdir = tempfile.mkdtemp()
+        archive_path = os.path.join(tmpdir, 'data.tar.gz')
+        # Only an image, no annotation
+        members = [('orphan.jpg', _make_image_bytes())]
+        _create_tar_gz(members, archive_path)
+
+        try:
+            streamer = LocalTarStreamer(file_path=archive_path)
+            records = list(streamer.extract_structured_data())
+            assert len(records) == 1
+            rec = records[0]
+            assert 'annotation_path' in rec
+            assert rec['annotation_path'] is None
+        finally:
+            shutil.rmtree(tmpdir)
+
+
 class TestStreamingPAPDatasetLocalTar:
     """Tests for StreamingPAPDataset with local_tar_stream mode."""
 

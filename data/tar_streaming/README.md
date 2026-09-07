@@ -163,7 +163,11 @@ python vispr/tools/scripts/train_torch.py \
     --buffer-size 2000 \
     --arch resnet50 \
     --pretrained \
-    --epochs 10
+    --epochs 10 \
+    --batch-size 1 \
+    --lr 0.001 \
+    --num-classes 68 \
+    --save-path ./checkpoints/model_final.pth
 ```
 
 ## Local Caching
