@@ -26,6 +26,7 @@ from torch.utils.data import DataLoader
 import torchvision.models as models
 
 from vispr.datasets.pap_dataset import PAPDataset
+from vispr.tools.common.utils import reload_model_weights
 
 try:
     from data.tar_streaming import StreamingConfig, StreamingPAPDataset
@@ -172,18 +173,7 @@ def main():
 
     model = build_model(args.arch, args.num_classes, pretrained=args.pretrained)
     if args.weights is not None:
-        ckpt = torch.load(args.weights, map_location='cpu')
-        # Support either state_dict or full model checkpoint
-        if isinstance(ckpt, dict) and 'state_dict' in ckpt:
-            state = ckpt['state_dict']
-        else:
-            state = ckpt
-        # Some checkpoints have 'module.' prefixes from DataParallel
-        new_state = {}
-        for k, v in state.items():
-            nk = k.replace('module.', '')
-            new_state[nk] = v
-        model.load_state_dict(new_state, strict=False)
+        reload_model_weights(model, args.weights, strict=False, map_location='cpu')
 
     device = torch.device(args.device)
 

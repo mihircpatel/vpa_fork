@@ -3,6 +3,8 @@ import argparse
 import torch
 import torchvision.models as models
 
+from vispr.tools.common.utils import reload_model_weights
+
 
 def export_to_onnx(weights_path, output_path, arch='resnet50', num_classes=68, input_size=224):
     """Export PyTorch model to ONNX format."""
@@ -12,11 +14,7 @@ def export_to_onnx(weights_path, output_path, arch='resnet50', num_classes=68, i
     model.fc = torch.nn.Linear(in_f, num_classes)
 
     # Load weights
-    state_dict = torch.load(weights_path, map_location='cpu')
-    if isinstance(state_dict, dict) and 'state_dict' in state_dict:
-        model.load_state_dict(state_dict['state_dict'])
-    else:
-        model.load_state_dict(state_dict)
+    reload_model_weights(model, weights_path, strict=False, map_location='cpu')
 
     model.eval()
 

@@ -24,6 +24,7 @@ from sklearn.metrics import average_precision_score
 import numpy as np
 
 from vispr.datasets.pap_dataset import PAPDataset
+from vispr.tools.common.utils import reload_model_weights
 from vispr.tools.common.logger import get_logger
 # Per-flow logger; writes to logs/train.log by default and mirrors to console.
 logger = get_logger('train')
@@ -190,7 +191,7 @@ def main():
     parser.add_argument('--batch-size', type=int, default=32)
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--num-classes', type=int, default=68)
-    parser.add_argument('--save-path', default='model_last.pth')
+    parser.add_argument('--save-path', default='model_final_best.pth')
     parser.add_argument('--device', default='cuda' if torch.cuda.is_available() else 'cpu')
 
     # Checkpoint download options
@@ -262,36 +263,6 @@ def main():
         data_source = config.data_source
 
     device = torch.device(args.device)
-
-    # Optionally download checkpoints before training
-    if args.download_checkpoints:
-        # parse provider config
-        pconfig = {}
-        if args.checkpoint_provider_config:
-            if os.path.isfile(args.checkpoint_provider_config):
-                try:
-                    with open(args.checkpoint_provider_config, 'r') as f:
-                        pconfig = json.load(f)
-                except Exception as e:
-                    raise ValueError(f'Failed to load checkpoint provider config file: {e}')
-            else:
-                try:
-                    pconfig = json.loads(args.checkpoint_provider_config)
-                except Exception as e:
-                    raise ValueError(f'Failed to parse checkpoint provider config: {e}')
-        # destination dir defaults to directory of save_path
-        if args.checkpoint_dest:
-            dest_dir = args.checkpoint_dest
-        else:
-            dest_dir = os.path.dirname(args.save_path) or '.'
-        try:
-            from vispr.tools.common.file_downloader import DownloadManager
-            dm = DownloadManager(provider=args.checkpoint_provider, provider_config=pconfig, logger_obj=logger)
-            downloaded = dm.download_checkpoints(folder=args.checkpoint_source, dest_dir=dest_dir, pattern=args.checkpoint_pattern)
-            logger.info('Downloaded %d checkpoint(s) to %s', len(downloaded), dest_dir)
-        except Exception as e:
-            logger.error('Checkpoint download failed: %s', e)
-            # proceed without failing training; user can choose to abort by removing flag
 
     # Create dataset and loader based on data source
     if data_source == 'hf_tar_stream':
@@ -444,13 +415,6 @@ def main():
         loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=2)
         print('No. of samples in train set: ' + str(len(loader.dataset)))
 
-    model = build_model(args.arch, args.num_classes, pretrained=args.pretrained).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=args.lr)
-    criterion = nn.BCEWithLogitsLoss()
-
-    best_loss = math.inf
-    val_loader = None
-
     # Setup validation loader
     if data_source == 'hf_tar_stream':
         if not STREAMING_AVAILABLE:
@@ -554,6 +518,56 @@ def main():
         val_dataset = PAPDataset(args.valfile, im_shape=(224, 224))
         val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=2)
         print('No. of samples in validation set: ' + str(len(val_loader.dataset)))
+
+    # Optionally download checkpoints before training
+    dest_dir = None
+    if args.download_checkpoints:
+        # parse provider config
+        pconfig = {}
+        if args.checkpoint_provider_config:
+            if os.path.isfile(args.checkpoint_provider_config):
+                try:
+                    with open(args.checkpoint_provider_config, 'r') as f:
+                        pconfig = json.load(f)
+                except Exception as e:
+                    raise ValueError(f'Failed to load checkpoint provider config file: {e}')
+            else:
+                try:
+                    pconfig = json.loads(args.checkpoint_provider_config)
+                except Exception as e:
+                    raise ValueError(f'Failed to parse checkpoint provider config: {e}')
+        # destination dir defaults to directory of save_path
+        if args.checkpoint_dest:
+            dest_dir = args.checkpoint_dest
+        else:
+            # dest_dir = os.path.dirname(args.save_path) or '.'
+            dest_dir = './checkpoints/downloaded'
+        try:
+            from vispr.tools.common.file_downloader import DownloadManager
+            dm = DownloadManager(provider=args.checkpoint_provider, provider_config=pconfig, logger_obj=logger)
+            downloaded = dm.download_checkpoints(folder=args.checkpoint_source, dest_dir=dest_dir, pattern=args.checkpoint_pattern)
+            logger.info('Downloaded %d checkpoint(s) to %s', len(downloaded), dest_dir)
+        except Exception as e:
+            logger.error('Checkpoint download failed: %s', e)
+            # proceed without failing training; user can choose to abort by removing flag
+
+    model = build_model(args.arch, args.num_classes, pretrained=args.pretrained).to(device)
+    if dest_dir is not None:
+        model_weight_file_basename = os.path.basename(args.save_path)
+        model_weight_file_path = os.path.join(dest_dir, model_weight_file_basename)
+        if os.path.isfile(model_weight_file_path):
+            print(f'Loading model weights from {model_weight_file_path}')
+            reload_model_weights(model, model_weight_file_path, strict=False, map_location=device)
+        else:
+            print(f'No model weights found at {model_weight_file_path}, proceeding with random initialization')
+    else:
+        print(f'No checkpoint path {dest_dir} exists, proceeding with random initialization')
+
+    optimizer = optim.Adam(model.parameters(), lr=args.lr)
+    criterion = nn.BCEWithLogitsLoss()
+
+    best_loss = math.inf
+    val_loader = None
 
     for epoch in range(1, args.epochs + 1):
         avg_loss = train_one_epoch(model, device, loader, optimizer, criterion, epoch)
