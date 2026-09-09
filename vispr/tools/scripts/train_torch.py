@@ -19,6 +19,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
+from torch.optim.lr_scheduler import LinearLR, ReduceLROnPlateau
 import torchvision.models as models
 from sklearn.metrics import average_precision_score
 import numpy as np
@@ -193,6 +194,18 @@ def main():
     parser.add_argument('--num-classes', type=int, default=68)
     parser.add_argument('--save-path', default='model_final_best.pth')
     parser.add_argument('--device', default='cuda' if torch.cuda.is_available() else 'cpu')
+
+    # Learning rate scheduling arguments
+    parser.add_argument('--warmup-epochs', type=int, default=5,
+                        help='Number of linear warmup epochs (LR ramps from ~0 to --lr)')
+    parser.add_argument('--lr-patience', type=int, default=3,
+                        help='Epochs to wait for loss improvement before reducing LR (ReduceLROnPlateau)')
+    parser.add_argument('--lr-factor', type=float, default=0.2,
+                        help='Factor to reduce LR by on plateau (0.2 = drop to 1/5)')
+    parser.add_argument('--min-lr', type=float, default=1e-6,
+                        help='Minimum learning rate floor')
+    parser.add_argument('--cooldown', type=int, default=0,
+                        help='Epochs to wait after a LR reduction before resuming patience counting')
 
     # Checkpoint download options
     parser.add_argument('--download-checkpoints', action='store_true', help='If set, download checkpoints before training')
@@ -566,14 +579,40 @@ def main():
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
     criterion = nn.BCEWithLogitsLoss()
 
+    # Learning rate scheduling: linear warmup then ReduceLROnPlateau
+    warmup_scheduler = LinearLR(
+        optimizer, start_factor=1e-2, total_iters=args.warmup_epochs
+    )
+    plateau_scheduler = ReduceLROnPlateau(
+        optimizer, mode='min', factor=args.lr_factor,
+        patience=args.lr_patience, cooldown=args.cooldown,
+        min_lr=args.min_lr
+    )
+
     best_loss = math.inf
     val_loader = None
 
     for epoch in range(1, args.epochs + 1):
         avg_loss = train_one_epoch(model, device, loader, optimizer, criterion, epoch)
         print(f'Epoch {epoch} finished. Avg Loss: {avg_loss:.4f}')
+
+        # Step LR schedulers
+        if epoch <= args.warmup_epochs:
+            warmup_scheduler.step()
+        else:
+            # Use validation loss if available, otherwise training loss
+            plateau_metric = avg_loss
+            plateau_scheduler.step(plateau_metric)
+        print(f'  Current LR: {optimizer.param_groups[0]["lr"]:.2e}')
+
         # Save checkpoint each epoch (atomic, thread-safe)
-        ckpt = {'epoch': epoch, 'state_dict': model.state_dict(), 'optimizer': optimizer.state_dict()}
+        ckpt = {
+            'epoch': epoch,
+            'state_dict': model.state_dict(),
+            'optimizer': optimizer.state_dict(),
+            'warmup_scheduler': warmup_scheduler.state_dict(),
+            'plateau_scheduler': plateau_scheduler.state_dict(),
+        }
         try:
             _atomic_torch_save(ckpt, args.save_path)
         except Exception:
@@ -590,6 +629,9 @@ def main():
         if val_loader is not None:
             mean_ap, ap_list = validate(model, device, val_loader)
             print(f'Validation mAP: {mean_ap:.4f}')
+            # Use validation loss for plateau scheduler if available
+            # Note: validate() returns mAP, not loss. We use training loss as proxy
+            # since we don't have a validation loss computed here.
 
 
 if __name__ == '__main__':

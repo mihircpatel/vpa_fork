@@ -17,6 +17,7 @@ This is a complete PyTorch implementation of a multi-label visual attribute pred
 - ✓ Batch processing capabilities
 - ✓ Environment variable configuration (no hardcoded paths)
 - ✓ Optional tar.gz streaming from Hugging Face Hub or local disk
+- ✓ Adaptive learning rate scheduling (linear warmup + plateau-based reduction)
 
 ---
 
@@ -42,12 +43,41 @@ Create JSON annotation files with image paths and labels, then create text files
 ### 3. Train
 
 ```powershell
-python vispr\\tools\\scripts\\train_torch.py `
+python vispr\tools\scripts\train_torch.py `
     --infile train.txt `
     --valfile val.txt `
     --epochs 10 `
     --save-path ./model.pth
 ```
+
+#### Learning Rate Scheduling
+
+Training uses **linear warmup** followed by **ReduceLROnPlateau** (drops LR by 1/5 on loss stagnation):
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--lr` | `1e-3` | Base learning rate |
+| `--warmup-epochs` | `5` | Linear warmup from ~0 to `--lr` |
+| `--lr-patience` | `3` | Epochs without improvement before LR reduction |
+| `--lr-factor` | `0.2` | Factor to multiply LR on plateau (0.2 = drop to 1/5) |
+| `--min-lr` | `1e-6` | Minimum learning rate floor |
+| `--cooldown` | `0` | Epochs to wait after a reduction before resuming patience |
+
+```powershell
+# Example: longer warmup, more aggressive scheduling
+python vispr\tools\scripts\train_torch.py `
+    --infile train.txt --valfile val.txt `
+    --epochs 20 --lr 1e-3 `
+    --warmup-epochs 8 --lr-patience 5 --lr-factor 0.2 `
+    --save-path ./model.pth
+```
+
+**Schedule behavior:**
+- **Epochs 1–warmup**: LR ramps linearly from `start_factor × lr` (≈1e-5) to `lr` (1e-3)
+- **After warmup**: LR stays constant until loss stagnates for `lr-patience` epochs
+- **On plateau**: LR is multiplied by `lr-factor` (default 0.2, i.e., drops to 1/5)
+- **Cooldown**: After a reduction, wait `cooldown` epochs before counting patience again
+- **Floor**: LR never drops below `min-lr`
 
 ### 4. Evaluate
 
@@ -87,6 +117,7 @@ print(probs)  # Array of 68 attribute probabilities
 | Train (local files) | `python vispr\tools\scripts\train_torch.py --infile train.txt --valfile val.txt --epochs 20` |
 | Train (HF streaming) | `python vispr\tools\scripts\train_torch.py --data-source hf_tar_stream --hf-repo user/dataset --hf-file-path train.tar.gz --epochs 20` |
 | Train (local tar streaming) | `python vispr\tools\scripts\train_torch.py --data-source local_tar_stream --local-file-path ./data/train.tar.gz --epochs 20` |
+| Train (custom LR schedule) | `python vispr\tools\scripts\train_torch.py --infile train.txt --lr 1e-3 --warmup-epochs 5 --lr-patience 3 --epochs 20` |
 | Inference | `python vispr\tools\scripts\attribute_predict_torch.py --infile test.txt --weights model.pth --outfile pred.jsonl` |
 | Evaluate | `python vispr\tools\scripts\evaluate.py pred.jsonl --class_scores metrics.tsv` |
 | Export ONNX | `python vispr\tools\scripts\export_to_onnx.py --weights model.pth --output model.onnx` |
@@ -113,6 +144,7 @@ This repository was recently migrated from Caffe to PyTorch to be more accessibl
 - Tar.gz streaming from Hugging Face Hub or local disk (no extraction needed)
 - Modern Python 3 codebase
 - Easy local inference with AttributePredictor wrapper
+- Adaptive LR scheduling: linear warmup + ReduceLROnPlateau (drops to 1/5 on stagnation)
 
 **Legacy Caffe features:**
 - Original Caffe datalayers preserved but optional (import-safe)
