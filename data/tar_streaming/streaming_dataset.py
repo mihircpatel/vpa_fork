@@ -269,6 +269,10 @@ class StreamingPAPDataset(IterableDataset):
         self._yielded_count = 0
         self._error_count = 0
 
+        # Reset streamer counters so per-epoch stats start from 0
+        if hasattr(self.streamer, 'reset_counters'):
+            self.streamer.reset_counters()
+
         # Check cache first
         if self._cache_enabled and self._is_cache_populated():
             logger.info(f"Reading from cache: {self._cache_path}")
