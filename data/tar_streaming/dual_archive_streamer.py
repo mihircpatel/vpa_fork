@@ -67,6 +67,8 @@ class HFDualArchiveStreamer:
         self.fs = HfFileSystem()
 
         # Progress counters
+        self.annotation_processed_count = 0
+        self.image_processed_count = 0
         self.processed_count = 0
         self.error_count = 0
         self.skipped_count = 0
@@ -88,6 +90,8 @@ class HFDualArchiveStreamer:
 
     def reset_counters(self):
         """Reset progress counters."""
+        self.annotation_processed_count = 0
+        self.image_processed_count = 0
         self.processed_count = 0
         self.error_count = 0
         self.skipped_count = 0
@@ -187,11 +191,12 @@ class HFDualArchiveStreamer:
         """
         return Path(path).stem
 
-    def _stream_tar_archive(self, archive_path: str) -> Iterator[Tuple[str, bytes]]:
+    def _stream_tar_archive(self, archive_path: str, counter: str = 'processed') -> Iterator[Tuple[str, bytes]]:
         """Stream a single tar.gz archive from HF Hub with retry and validation.
 
         Args:
             archive_path: Path to .tar.gz file in repository
+            counter: Which counter to increment - 'annotation', 'image', or 'processed'
 
         Yields:
             Tuples of (member_name, file_data)
@@ -220,6 +225,10 @@ class HFDualArchiveStreamer:
                                 self.skipped_count += 1
                                 continue
                             self.processed_count += 1
+                            if counter == 'annotation':
+                                self.annotation_processed_count += 1
+                            elif counter == 'image':
+                                self.image_processed_count += 1
                             yield member.name, file_data
                         finally:
                             file_obj.close()
@@ -249,7 +258,7 @@ class HFDualArchiveStreamer:
         """
         anno_index = {}
 
-        for member_name, file_data in self._stream_tar_archive(self.annotation_archive_path):
+        for member_name, file_data in self._stream_tar_archive(self.annotation_archive_path, counter='annotation'):
             if not member_name.endswith('.json'):
                 continue
 
@@ -326,7 +335,7 @@ class HFDualArchiveStreamer:
         logger.info("Streaming images and matching with annotations...")
         matched_count = 0
 
-        for member_name, file_data in self._stream_tar_archive(self.image_archive_path):
+        for member_name, file_data in self._stream_tar_archive(self.image_archive_path, counter='image'):
             if not self._is_image_file(member_name):
                 continue
 
@@ -405,6 +414,8 @@ class HFDualArchiveStreamer:
     def stats(self) -> Dict[str, int]:
         """Return current progress counters."""
         return {
+            'annotation_processed': self.annotation_processed_count,
+            'image_processed': self.image_processed_count,
             'processed': self.processed_count,
             'errors': self.error_count,
             'skipped': self.skipped_count,

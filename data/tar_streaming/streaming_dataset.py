@@ -312,12 +312,22 @@ class StreamingPAPDataset(IterableDataset):
 
                 if self.log_interval > 0 and self._yielded_count % self.log_interval == 0:
                     streamer_stats = self.streamer.stats()
-                    logger.info(
-                        f"[stream] Yielded {self._yielded_count} records, "
-                        f"streamer: processed={streamer_stats['processed']}, "
-                        f"errors={streamer_stats['errors']}, "
-                        f"skipped={streamer_stats['skipped']}"
-                    )
+                    anno_cnt = streamer_stats.get('annotation_processed')
+                    img_cnt = streamer_stats.get('image_processed')
+                    if anno_cnt is not None and img_cnt is not None:
+                        logger.info(
+                            f"[stream] Yielded {self._yielded_count} records, "
+                            f"streamer: annotation_processed={anno_cnt}, image_processed={img_cnt}, "
+                            f"errors={streamer_stats['errors']}, "
+                            f"skipped={streamer_stats['skipped']}"
+                        )
+                    else:
+                        logger.info(
+                            f"[stream] Yielded {self._yielded_count} records, "
+                            f"streamer: processed={streamer_stats['processed']}, "
+                            f"errors={streamer_stats['errors']}, "
+                            f"skipped={streamer_stats['skipped']}"
+                        )
 
                 yield processed
             except Exception as e:
@@ -327,13 +337,24 @@ class StreamingPAPDataset(IterableDataset):
                 continue
 
         streamer_stats = self.streamer.stats()
-        logger.info(
-            f"Streaming iteration complete: yielded={self._yielded_count}, "
-            f"errors={self._error_count}, "
-            f"streamer: processed={streamer_stats['processed']}, "
-            f"errors={streamer_stats['errors']}, "
-            f"skipped={streamer_stats['skipped']}"
-        )
+        anno_cnt = streamer_stats.get('annotation_processed')
+        img_cnt = streamer_stats.get('image_processed')
+        if anno_cnt is not None and img_cnt is not None:
+            logger.info(
+                f"Streaming iteration complete: yielded={self._yielded_count}, "
+                f"errors={self._error_count}, "
+                f"streamer: annotation_processed={anno_cnt}, image_processed={img_cnt}, "
+                f"errors={streamer_stats['errors']}, "
+                f"skipped={streamer_stats['skipped']}"
+            )
+        else:
+            logger.info(
+                f"Streaming iteration complete: yielded={self._yielded_count}, "
+                f"errors={self._error_count}, "
+                f"streamer: processed={streamer_stats['processed']}, "
+                f"errors={streamer_stats['errors']}, "
+                f"skipped={streamer_stats['skipped']}"
+            )
 
     def _is_cache_populated(self) -> bool:
         """Check if the cache directory has at least one record."""

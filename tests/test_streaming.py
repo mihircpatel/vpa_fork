@@ -540,6 +540,65 @@ class TestCounters:
         assert streamer.skipped_count == 0
 
 
+class TestDualArchiveCounters:
+    """Tests for separate annotation and image counters in dual archive mode."""
+
+    def test_dual_archive_separate_counters(self):
+        """Dual archive streamer should track annotation and image counts separately."""
+        from data.tar_streaming.local_tar_streamer import LocalTarStreamer
+
+        tmpdir = tempfile.mkdtemp()
+        try:
+            img_archive, anno_archive, list_path = _make_dual_archive(tmpdir)
+            streamer = LocalTarStreamer(
+                image_archive_path=img_archive,
+                annotation_archive_path=anno_archive,
+                anno_list_path=list_path,
+            )
+            records = list(streamer.extract_structured_data())
+            stats = streamer.stats()
+
+            # Should have separate counters
+            assert 'annotation_processed' in stats
+            assert 'image_processed' in stats
+            # Both should be positive
+            assert stats['annotation_processed'] > 0
+            assert stats['image_processed'] > 0
+            # Sum should equal total processed
+            assert stats['annotation_processed'] + stats['image_processed'] == stats['processed']
+            # Should match number of yielded records
+            assert stats['image_processed'] == len(records)
+        finally:
+            shutil.rmtree(tmpdir)
+
+    def test_dual_archive_counters_reset(self):
+        """Dual archive counters should reset on each iteration."""
+        from data.tar_streaming.local_tar_streamer import LocalTarStreamer
+
+        tmpdir = tempfile.mkdtemp()
+        try:
+            img_archive, anno_archive, list_path = _make_dual_archive(tmpdir)
+            streamer = LocalTarStreamer(
+                image_archive_path=img_archive,
+                annotation_archive_path=anno_archive,
+                anno_list_path=list_path,
+            )
+            # First iteration
+            list(streamer.extract_structured_data())
+            stats1 = streamer.stats()
+
+            # Second iteration - counters should reset
+            list(streamer.extract_structured_data())
+            stats2 = streamer.stats()
+
+            # Counts should be the same (not doubled)
+            assert stats1['annotation_processed'] == stats2['annotation_processed']
+            assert stats1['image_processed'] == stats2['image_processed']
+            assert stats1['processed'] == stats2['processed']
+        finally:
+            shutil.rmtree(tmpdir)
+
+
 # ---------------------------------------------------------------------------
 # Record Processing Tests
 # ---------------------------------------------------------------------------
@@ -861,7 +920,7 @@ class TestLocalTarStreamerCombined:
             shutil.rmtree(tmpdir)
 
     def test_stats_after_extraction(self):
-        """Stats should be populated after streaming."""
+        """Stats should be populated after streaming combined archive."""
         from data.tar_streaming.local_tar_streamer import LocalTarStreamer
 
         tmpdir, archive_path, _ = _make_dummy_archive()
@@ -870,6 +929,9 @@ class TestLocalTarStreamerCombined:
             list(streamer.extract_structured_data())
             stats = streamer.stats()
             assert stats['processed'] > 0
+            # Combined archive has no separate annotation/image records
+            assert stats['annotation_processed'] == 0
+            assert stats['image_processed'] == 0
         finally:
             shutil.rmtree(tmpdir)
 
@@ -920,7 +982,7 @@ class TestLocalTarStreamerDual:
             shutil.rmtree(tmpdir)
 
     def test_dual_stats(self):
-        """Stats should be populated after streaming."""
+        """Stats should show separate annotation and image counts after streaming."""
         from data.tar_streaming.local_tar_streamer import LocalTarStreamer
 
         tmpdir = tempfile.mkdtemp()
@@ -934,6 +996,9 @@ class TestLocalTarStreamerDual:
             list(streamer.extract_structured_data())
             stats = streamer.stats()
             assert stats['processed'] > 0
+            assert stats['annotation_processed'] > 0
+            assert stats['image_processed'] > 0
+            assert stats['annotation_processed'] + stats['image_processed'] == stats['processed']
         finally:
             shutil.rmtree(tmpdir)
 

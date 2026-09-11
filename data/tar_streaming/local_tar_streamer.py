@@ -81,6 +81,8 @@ class LocalTarStreamer:
             self.anno_list_path is not None
 
         # Progress counters
+        self.annotation_processed_count = 0
+        self.image_processed_count = 0
         self.processed_count = 0
         self.error_count = 0
         self.skipped_count = 0
@@ -108,6 +110,8 @@ class LocalTarStreamer:
 
     def reset_counters(self):
         """Reset progress counters."""
+        self.annotation_processed_count = 0
+        self.image_processed_count = 0
         self.processed_count = 0
         self.error_count = 0
         self.skipped_count = 0
@@ -206,11 +210,12 @@ class LocalTarStreamer:
         self._verify_archive_path(path)
         return tarfile.open(path, mode='r:gz')
 
-    def stream_tar_members(self, path: str) -> Iterator[Tuple[str, bytes, tarfile.TarInfo]]:
+    def stream_tar_members(self, path: str, counter: str = 'processed') -> Iterator[Tuple[str, bytes, tarfile.TarInfo]]:
         """Stream local tar archive members one by one.
 
         Args:
             path: Local .tar.gz path
+            counter: Which counter to increment - 'annotation', 'image', or 'processed'
 
         Yields:
             Tuple of (member_name, file_data, tarinfo) for each member
@@ -236,6 +241,10 @@ class LocalTarStreamer:
                                 self.skipped_count += 1
                                 continue
                             self.processed_count += 1
+                            if counter == 'annotation':
+                                self.annotation_processed_count += 1
+                            elif counter == 'image':
+                                self.image_processed_count += 1
                             yield member.name, file_data, member
                         finally:
                             file_obj.close()
@@ -253,9 +262,9 @@ class LocalTarStreamer:
             logger.error(f"Error streaming local tar archive {path}: {e}")
             raise
 
-    def _stream_data_members(self, path: str) -> Iterator[Tuple[str, bytes]]:
+    def _stream_data_members(self, path: str, counter: str = 'processed') -> Iterator[Tuple[str, bytes]]:
         """Stream a local tar.gz archive, yielding (member_name, data) tuples."""
-        for member_name, file_data, _ in self.stream_tar_members(path):
+        for member_name, file_data, _ in self.stream_tar_members(path, counter=counter):
             yield member_name, file_data
 
     def _create_record(self, image_path: str, image: Image.Image,
@@ -432,7 +441,7 @@ class LocalTarStreamer:
         logger.info("Streaming images and matching with annotations...")
         matched_count = 0
 
-        for member_name, file_data in self._stream_data_members(self.image_archive_path):
+        for member_name, file_data in self._stream_data_members(self.image_archive_path, counter='image'):
             if not self._is_image_file(member_name):
                 continue
 
@@ -482,7 +491,7 @@ class LocalTarStreamer:
         """
         anno_index = {}
 
-        for member_name, file_data in self._stream_data_members(self.annotation_archive_path):
+        for member_name, file_data in self._stream_data_members(self.annotation_archive_path, counter='annotation'):
             if not member_name.endswith('.json'):
                 continue
 
@@ -563,6 +572,8 @@ class LocalTarStreamer:
     def stats(self) -> Dict[str, int]:
         """Return current progress counters."""
         return {
+            'annotation_processed': self.annotation_processed_count,
+            'image_processed': self.image_processed_count,
             'processed': self.processed_count,
             'errors': self.error_count,
             'skipped': self.skipped_count,
