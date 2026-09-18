@@ -20,13 +20,13 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import LinearLR, ReduceLROnPlateau
-import torchvision.models as models
 from sklearn.metrics import average_precision_score
 import numpy as np
 
 from vispr.datasets.pap_dataset import PAPDataset
 from vispr.tools.common.utils import reload_model_weights
 from vispr.tools.common.logger import get_logger
+from vispr.models import build_model as build_model_factory
 # Per-flow logger; writes to logs/train.log by default and mirrors to console.
 logger = get_logger('train')
 # Route existing print(...) calls to logger.info for minimal invasive changes
@@ -76,31 +76,64 @@ except ImportError:
     STREAMING_AVAILABLE = False
 
 
-def build_model(arch: str, num_classes: int, pretrained: bool = False):
-    arch = arch.lower()
-    if arch.startswith('resnet'):
-        model = getattr(models, arch)(pretrained=pretrained)
-        in_f = model.fc.in_features
-        model.fc = nn.Linear(in_f, num_classes)
-        return model
-    else:
-        raise ValueError('Unsupported arch: {}'.format(arch))
+def build_model(arch: str, num_classes: int, pretrained: bool = False,
+                model_type: str = 'attribute', num_privacy_scores: int = 30):
+    """Build a model by name.
+
+    ``model_type`` selects between the base attribute model and the
+    privacy-aware PRCNN extension.
+    """
+    return build_model_factory(
+        arch=arch,
+        num_classes=num_classes,
+        model_type=model_type,
+        num_privacy_scores=num_privacy_scores,
+        pretrained=pretrained,
+    )
 
 
-def train_one_epoch(model, device, loader, optimizer, criterion, epoch, log_interval=50):
+def train_one_epoch(model, device, loader, optimizer, criterion, epoch, log_interval=50,
+                    privacy_criterion=None, privacy_loss_weight=0.03):
+    """Train one epoch.
+
+    Supports both the base attribute model (returns ``attr_logits``) and the
+    privacy-aware model (returns ``(attr_logits, privacy_scores)``).  When the
+    model is privacy-aware, the total loss is::
+
+        BCE(attr_logits, labels) + privacy_loss_weight * MSE(priv_scores, user_scores)
+    """
     model.train()
     running_loss = 0.0
+    running_attr_loss = 0.0
+    running_priv_loss = 0.0
     running_correct = 0.0
     total_batches = 0
-    for batch_idx, (data, target) in enumerate(loader):
+    for batch_idx, batch in enumerate(loader):
+        if len(batch) == 3:
+            data, target, user_scores = batch
+        else:
+            data, target = batch
+            user_scores = None
         data = data.to(device).float()
         target = target.to(device).float()
+        user_scores = user_scores.to(device).float() if user_scores is not None else None
         optimizer.zero_grad()
         outputs = model(data)
-        # _, predicted = torch.max(outputs.data, 1)
-        # running_correct += (predicted == target.data).sum()
 
-        loss = criterion(outputs, target)
+        if isinstance(outputs, tuple):
+            attr_logits, privacy_scores = outputs
+            attr_loss = criterion(attr_logits, target)
+            if privacy_criterion is not None and user_scores is not None and privacy_scores is not None:
+                privacy_loss = privacy_criterion(privacy_scores, user_scores)
+            else:
+                privacy_loss = torch.zeros((), device=device)
+            loss = attr_loss + privacy_loss_weight * privacy_loss
+            running_attr_loss += attr_loss.item()
+            running_priv_loss += privacy_loss.item()
+        else:
+            loss = criterion(outputs, target)
+            running_attr_loss += loss.item()
+
         loss.backward()
         optimizer.step()
 
@@ -120,10 +153,18 @@ def validate(model, device, loader):
     ys = []
     ys_pred = []
     with torch.no_grad():
-        for data, target in loader:
+        for batch in loader:
+            if len(batch) == 3:
+                data, target, _ = batch
+            else:
+                data, target = batch
             data = data.to(device).float()
             outputs = model(data)
-            probs = torch.sigmoid(outputs).cpu().numpy()
+            if isinstance(outputs, tuple):
+                attr_logits, _ = outputs
+            else:
+                attr_logits = outputs
+            probs = torch.sigmoid(attr_logits).cpu().numpy()
             ys_pred.append(probs)
             ys.append(target.numpy())
     ys = np.vstack(ys)
@@ -188,6 +229,16 @@ def main():
     # Model and training arguments
     parser.add_argument('--arch', default='resnet50')
     parser.add_argument('--pretrained', action='store_true')
+    parser.add_argument('--model-type', default='attribute',
+                        choices=['attribute', 'privacy_aware'],
+                        help='Model class to use: "attribute" (base) or '
+                             '"privacy_aware" (PRCNN extension with privacy score branch)')
+    parser.add_argument('--num-privacy-scores', type=int, default=30,
+                        help='Number of privacy score outputs for --model-type privacy_aware (default 30)')
+    parser.add_argument('--user-scores-path', default=None,
+                        help='TSV file with per-image user privacy scores for privacy-aware training')
+    parser.add_argument('--privacy-loss-weight', type=float, default=0.03,
+                        help='Weight of privacy score loss (matches prototxt loss_weight=0.03)')
     parser.add_argument('--epochs', type=int, default=10)
     parser.add_argument('--batch-size', type=int, default=32)
     parser.add_argument('--lr', type=float, default=1e-3)
@@ -347,7 +398,8 @@ def main():
             print(f"  Repo: {config.repo_id}")
             print(f"  File: {config.file_path}")
 
-        dataset = StreamingPAPDataset(config=config, shuffle=True)
+        dataset = StreamingPAPDataset(config=config, shuffle=True,
+                                      user_scores_path=args.user_scores_path if args.model_type == 'privacy_aware' else None)
         # Note: IterableDataset doesn't support multiple workers well
         loader = DataLoader(dataset, batch_size=args.batch_size, num_workers=0)
         print(f'Streaming dataset from HF Hub')
@@ -414,7 +466,8 @@ def main():
             print(f"Using local tar streaming (combined archive mode):")
             print(f"  File: {config.file_path}")
 
-        dataset = StreamingPAPDataset(config=config, shuffle=True)
+        dataset = StreamingPAPDataset(config=config, shuffle=True,
+                                      user_scores_path=args.user_scores_path if args.model_type == 'privacy_aware' else None)
         loader = DataLoader(dataset, batch_size=args.batch_size, num_workers=0)
         print(f'Streaming dataset from local archives')
 
@@ -424,7 +477,13 @@ def main():
             raise ValueError("For local data source, --infile is required")
 
         print(f"Using local data from: {args.infile}")
-        dataset = PAPDataset(args.infile, im_shape=(224, 224))
+        user_scores_kwargs = {}
+        if args.model_type == 'privacy_aware':
+            user_scores_kwargs['user_scores_path'] = args.user_scores_path
+            if args.user_scores_path is None:
+                print("Warning: --model-type privacy_aware but no --user-scores-path provided. "
+                      "Privacy loss will be skipped; attribute loss still applies.")
+        dataset = PAPDataset(args.infile, im_shape=(224, 224), **user_scores_kwargs)
         loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=2)
         print('No. of samples in train set: ' + str(len(loader.dataset)))
 
@@ -457,7 +516,8 @@ def main():
                         max_retries=args.max_retries,
                         cache_dir=args.cache_dir,
                     )
-                    val_dataset = StreamingPAPDataset(config=val_config, shuffle=False)
+                    val_dataset = StreamingPAPDataset(config=val_config, shuffle=False,
+                                                      user_scores_path=args.user_scores_path if args.model_type == 'privacy_aware' else None)
                     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, num_workers=0)
                     print(f'Streaming validation dataset from HF Hub (dual archive mode)')
 
@@ -475,7 +535,8 @@ def main():
                     max_retries=args.max_retries,
                     cache_dir=args.cache_dir,
                 )
-                val_dataset = StreamingPAPDataset(config=val_config, shuffle=False)
+                val_dataset = StreamingPAPDataset(config=val_config, shuffle=False,
+                                                      user_scores_path=args.user_scores_path if args.model_type == 'privacy_aware' else None)
                 val_loader = DataLoader(val_dataset, batch_size=args.batch_size, num_workers=0)
                 print(f'Streaming validation dataset from HF Hub (combined archive mode)')
 
@@ -506,7 +567,8 @@ def main():
                         max_retries=args.max_retries,
                         cache_dir=args.cache_dir,
                     )
-                    val_dataset = StreamingPAPDataset(config=val_config, shuffle=False)
+                    val_dataset = StreamingPAPDataset(config=val_config, shuffle=False,
+                                                      user_scores_path=args.user_scores_path if args.model_type == 'privacy_aware' else None)
                     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, num_workers=0)
                     print(f'Streaming validation dataset from local archives (dual archive mode)')
 
@@ -523,12 +585,16 @@ def main():
                     max_retries=args.max_retries,
                     cache_dir=args.cache_dir,
                 )
-                val_dataset = StreamingPAPDataset(config=val_config, shuffle=False)
+                val_dataset = StreamingPAPDataset(config=val_config, shuffle=False,
+                                                      user_scores_path=args.user_scores_path if args.model_type == 'privacy_aware' else None)
                 val_loader = DataLoader(val_dataset, batch_size=args.batch_size, num_workers=0)
                 print(f'Streaming validation dataset from local archives (combined archive mode)')
 
     elif data_source == 'local' and args.valfile:
-        val_dataset = PAPDataset(args.valfile, im_shape=(224, 224))
+        user_scores_kwargs = {}
+        if args.model_type == 'privacy_aware':
+            user_scores_kwargs['user_scores_path'] = args.user_scores_path
+        val_dataset = PAPDataset(args.valfile, im_shape=(224, 224), **user_scores_kwargs)
         val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=2)
         print('No. of samples in validation set: ' + str(len(val_loader.dataset)))
 
@@ -564,7 +630,11 @@ def main():
             logger.error('Checkpoint download failed: %s', e)
             # proceed without failing training; user can choose to abort by removing flag
 
-    model = build_model(args.arch, args.num_classes, pretrained=args.pretrained).to(device)
+    if args.model_type == 'privacy_aware' and args.user_scores_path:
+        print(f'Using privacy-aware model ({args.model_type}) with user scores from: {args.user_scores_path}')
+    model = build_model(args.arch, args.num_classes, pretrained=args.pretrained,
+                        model_type=args.model_type,
+                        num_privacy_scores=args.num_privacy_scores).to(device)
     if dest_dir is not None:
         model_weight_file_basename = os.path.basename(args.save_path)
         model_weight_file_path = os.path.join(dest_dir, model_weight_file_basename)
@@ -578,6 +648,7 @@ def main():
 
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
     criterion = nn.BCEWithLogitsLoss()
+    privacy_criterion = nn.MSELoss() if args.model_type == 'privacy_aware' else None
 
     # Learning rate scheduling: linear warmup then ReduceLROnPlateau
     warmup_scheduler = LinearLR(
@@ -593,7 +664,9 @@ def main():
     val_loader = None
 
     for epoch in range(1, args.epochs + 1):
-        avg_loss = train_one_epoch(model, device, loader, optimizer, criterion, epoch)
+        avg_loss = train_one_epoch(model, device, loader, optimizer, criterion, epoch,
+                                   privacy_criterion=privacy_criterion,
+                                   privacy_loss_weight=args.privacy_loss_weight)
         print(f'Epoch {epoch} finished. Avg Loss: {avg_loss:.4f}')
 
         # Step LR schedulers

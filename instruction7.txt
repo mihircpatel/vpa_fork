@@ -1,0 +1,11 @@
+Role: Senior AI Architect and PyTorch Engineer.
+Task: Implement the following changes to the previous changes of extended privacy aware model. The changes should be made in a way that maintains the existing flow and functionality of the model while allowing for new features to be added seamlessly.
+Code updates requirements:
+1. For the new privacy aware model changes, prepare the required input data files and ensure they are compatible with the existing model architecture.
+2. See the existing implementation of deriving user_scores_mat in @PAPInputLayer.py forward function and generate a new file used as user_scores_path input for privacy aware model implementation.
+3. Format of user_scores_path should be same as required for the privacy aware model implemented previously.
+4. Ensure that the new input data files are properly validated and preprocessed before being fed into the model.
+5. Generated file is the TSV file expected to have a header row with columns ``image_id`` (or``image_path``) followed by ``score_0`` .. ``score_29`` (or any 30 numeric columns).
+6. Write log at an appropriate level to indicate the progress of data preparation, validation, and preprocessing steps.
+7. Ensure that the new input data files are stored in a designated directory (vispr\datasets\) and that the model can access them without any issues.
+8. Generate an appropriate README file in the designated directory to explain the structure and format of the input data files, including any preprocessing steps taken.

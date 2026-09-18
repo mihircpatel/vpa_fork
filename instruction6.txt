@@ -1,0 +1,12 @@
+Role: Senior AI Architect and PyTorch Engineer.
+Task: Implement the following changes to the existing implementation to extend the model with additional layers and functionalities. The changes should be made in a way that maintains the existing flow and functionality of the model while allowing for new features to be added seamlessly.
+Code implementation requirements:
+1. Implement new model by extending the existing model class without impacting the existing model or network.
+2. Add additional layers to the new model, such as layers mentioned in @googleenet-prcnn/train_val.prototxt from line no 2121 onwards.To extend the existing model class without impacting the current implementation, we will create a new class that inherits from the existing model class. This new class will include additional layers and functionalities as specified.
+3. Ensure that the new model class maintains compatibility with the existing training and evaluation pipelines. This includes ensuring that the input and output dimensions are consistent with the original model, and that any new layers do not disrupt the flow of data through the network.
+4. Implement any necessary changes to the forward pass of the new model class to accommodate the additional layers and functionalities. This may involve modifying the forward method to include the new layers and ensuring that the output of the new layers is correctly integrated into the overall model output.
+5. Update the training and evaluation scripts to recognize and utilize the new model class. This may involve adding new command-line arguments or configuration options to specify which model class to use during training and evaluation.
+6. Ensure that the new model class is well-documented, with clear explanations of the additional layers and functionalities, as well as any changes made to the forward pass or other methods. This documentation should be included in the code comments and any relevant README files.
+7. Implement unit tests for the new model class to verify that the additional layers and functionalities are working as expected. This may involve creating test cases that check the output dimensions, the behavior of the new layers, and the overall performance of the model on sample data.
+8. Ensure that the new model class is compatible with existing datasets and data loaders. This may involve verifying that the input data format and preprocessing steps are consistent with the original model, and making any necessary adjustments to accommodate the new layers.
+

@@ -1,0 +1,29 @@
+-------------------------------------------- VISPR Dataset (Full) -----------------------------------------------------------------
+-------------------------------------------------------------------------------------------------------------
+------------------------------------------- Training --------------------------------------------------------
+
+Run 1:
+python vispr/tools/scripts/train_torch.py --data-source local_tar_stream --local-image-archive C:/Users/DS23CS001/Documents/PhD/Research/Dataset/VISPR/train2017.tar.gz --local-anno-archive C:/Users/DS23CS001/Documents/PhD/Research/Dataset/VISPR/train2017_anno.tar.gz --local-anno-list ./vispr/datasets/train2017.txt --local-val-image-archive C:/Users/DS23CS001/Documents/PhD/Research/Dataset/VISPR/val2017.tar.gz --local-val-anno-archive C:/Users/DS23CS001/Documents/PhD/Research/Dataset/VISPR//val2017_anno.tar.gz --local-val-anno-list ./vispr/datasets/val2017.txt --buffer-size 300 --arch resnet50 --pretrained --epochs 10 --batch-size 32 --num-classes 68 --save-path ./checkpoints/model_final.pth --download-checkpoints --checkpoint-provider local --checkpoint-source ./checkpoints --checkpoint-dest ./checkpoints/downloaded --lr 0.001 --warmup-epochs 5 --lr-patience 3 --lr-factor 0.2
+
+Run 2:
+python vispr/tools/scripts/train_torch.py --data-source local_tar_stream --local-image-archive C:/Users/DS23CS001/Documents/PhD/Research/Dataset/VISPR/train2017.tar.gz --local-anno-archive C:/Users/DS23CS001/Documents/PhD/Research/Dataset/VISPR/train2017_anno.tar.gz --local-anno-list ./vispr/datasets/train2017.txt --local-val-image-archive C:/Users/DS23CS001/Documents/PhD/Research/Dataset/VISPR/val2017.tar.gz --local-val-anno-archive C:/Users/DS23CS001/Documents/PhD/Research/Dataset/VISPR//val2017_anno.tar.gz --local-val-anno-list ./vispr/datasets/val2017.txt --buffer-size 300 --arch resnet50 --pretrained --epochs 10 --batch-size 32 --num-classes 68 --save-path ./checkpoints/model_final.pth --download-checkpoints --checkpoint-provider local --checkpoint-source ./checkpoints --checkpoint-dest ./checkpoints/downloaded --lr 0.001 --warmup-epochs 5 --lr-patience 3 --lr-factor 0.2
+
+Run 3:
+python vispr/tools/scripts/train_torch.py --data-source local_tar_stream --local-image-archive C:/Users/DS23CS001/Documents/PhD/Research/Dataset/VISPR/train2017.tar.gz --local-anno-archive C:/Users/DS23CS001/Documents/PhD/Research/Dataset/VISPR/train2017_anno.tar.gz --local-anno-list ./vispr/datasets/train2017.txt --local-val-image-archive C:/Users/DS23CS001/Documents/PhD/Research/Dataset/VISPR/val2017.tar.gz --local-val-anno-archive C:/Users/DS23CS001/Documents/PhD/Research/Dataset/VISPR//val2017_anno.tar.gz --local-val-anno-list ./vispr/datasets/val2017.txt --buffer-size 300 --arch resnet50 --pretrained --epochs 30 --batch-size 32 --num-classes 68 --save-path ./checkpoints/model_final.pth --download-checkpoints --checkpoint-provider local --checkpoint-source ./checkpoints --checkpoint-dest ./checkpoints/downloaded --lr 0.001 --warmup-epochs 15 --lr-patience 3 --lr-factor 0.2
+
+Run 4:
+python vispr/tools/scripts/train_torch.py --data-source local_tar_stream --local-image-archive C:/Users/DS23CS001/Documents/PhD/Research/Dataset/VISPR/train2017.tar.gz --local-anno-archive C:/Users/DS23CS001/Documents/PhD/Research/Dataset/VISPR/train2017_anno.tar.gz --local-anno-list ./vispr/datasets/train2017.txt --local-val-image-archive C:/Users/DS23CS001/Documents/PhD/Research/Dataset/VISPR/val2017.tar.gz --local-val-anno-archive C:/Users/DS23CS001/Documents/PhD/Research/Dataset/VISPR//val2017_anno.tar.gz --local-val-anno-list ./vispr/datasets/val2017.txt --buffer-size 300 --arch resnet50 --pretrained --epochs 25 --batch-size 32 --num-classes 68 --save-path ./checkpoints/model_final.pth --download-checkpoints --checkpoint-provider local --checkpoint-source ./checkpoints --checkpoint-dest ./checkpoints/downloaded --lr 0.001 --warmup-epochs 15 --lr-patience 3 --lr-factor 0.2
+
+------------------------------------------- Inference --------------------------------------------------------
+
+Run 1: 
+(Start: 2026-09-14 16:10:41,657)
+python vispr\\tools\\scripts\\attribute_predict_torch.py --data-source local_tar_stream  --outfile ./output/predictions.jsonl --weights ./checkpoints/model_final_best.pth --arch resnet50 --num-classes 68 --batch-size 32 --local-image-archive C:/Users/DS23CS001/Documents/PhD/Research/Dataset/VISPR/test2017.tar.gz --local-anno-archive C:/Users/DS23CS001/Documents/PhD/Research/Dataset/VISPR/test2017_anno.tar.gz --local-anno-list ./vispr/datasets/test2017.txt
+(End: 2026-09-14 16:26:51,313)
+
+------------------------------------------- Evaluation --------------------------------------------------------
+Run 1:
+python vispr\\tools\\scripts\\evaluate.py ./output/predictions.jsonl --class_scores ./output/per_class_metrics.tsv --qual ./output/q_result
+
+--------------------------------------------------------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------------------------------------------------------

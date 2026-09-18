@@ -21,12 +21,11 @@ import os
 import os.path as osp
 import json
 import torch
-import torch.nn as nn
 from torch.utils.data import DataLoader
-import torchvision.models as models
 
 from vispr.datasets.pap_dataset import PAPDataset
 from vispr.tools.common.utils import reload_model_weights
+from vispr.models import build_model as build_model_factory
 
 try:
     from data.tar_streaming import StreamingConfig, StreamingPAPDataset
@@ -44,26 +43,28 @@ def _logger_print(*args, **kwargs):
 print = _logger_print
 
 
-def build_model(arch: str, num_classes: int, pretrained: bool = False):
-    arch = arch.lower()
-    if arch.startswith('resnet'):
-        model = getattr(models, arch)(pretrained=pretrained)
-        # Replace final fc
-        in_f = model.fc.in_features
-        model.fc = nn.Linear(in_f, num_classes)
-        return model
-    elif arch.startswith('mobilenet'):
-        model = getattr(models, arch)(pretrained=pretrained)
-        in_f = model.classifier[-1].in_features
-        model.classifier[-1] = nn.Linear(in_f, num_classes)
-        return model
-    else:
-        raise ValueError('Unsupported arch: {}'.format(arch))
+def build_model(arch: str, num_classes: int, pretrained: bool = False,
+                model_type: str = 'attribute', num_privacy_scores: int = 30):
+    """Build a model by name.
+
+    ``model_type='privacy_aware'`` builds the PRCNN-extended model whose
+    forward returns ``(attr_logits, privacy_scores)``.
+    """
+    return build_model_factory(
+        arch=arch,
+        num_classes=num_classes,
+        model_type=model_type,
+        num_privacy_scores=num_privacy_scores,
+        pretrained=pretrained,
+    )
 
 
-def classify_paths(model, device, loader, dataset, out_file: str):
+def classify_paths(model, device, loader, dataset, out_file: str,
+                   predict_privacy_scores: bool = False):
     model = model.to(device)
     model.eval()
+
+    privacy_aware = hasattr(model, 'privacy_branch')
 
     with open(out_file, 'w') as wf:
         idx = 0
@@ -77,7 +78,14 @@ def classify_paths(model, device, loader, dataset, out_file: str):
             images = images.to(device).float()
             with torch.no_grad():
                 outputs = model(images)
-                probs = torch.sigmoid(outputs).cpu().numpy()
+                if isinstance(outputs, tuple):
+                    attr_logits, privacy_scores = outputs
+                    probs = torch.sigmoid(attr_logits).cpu().numpy()
+                    priv_scores_np = privacy_scores.cpu().numpy()
+                else:
+                    attr_logits = outputs
+                    probs = torch.sigmoid(attr_logits).cpu().numpy()
+                    priv_scores_np = None
 
             batch_size_local = probs.shape[0]
             for b in range(batch_size_local):
@@ -88,6 +96,8 @@ def classify_paths(model, device, loader, dataset, out_file: str):
                 else:
                     ann_path = None
                 entry = {'anno_path': ann_path, 'pred_probs': probs[b].tolist()}
+                if predict_privacy_scores and privacy_aware and priv_scores_np is not None:
+                    entry['privacy_scores'] = priv_scores_np[b].tolist()
                 wf.write(json.dumps(entry) + '\n')
                 idx += 1
 
@@ -100,8 +110,16 @@ def main():
     parser.add_argument('--outfile', type=str, required=True, help='Output JSONL file for predictions')
     parser.add_argument('--batch-size', type=int, default=64)
     parser.add_argument('--num-classes', type=int, default=68)
+    parser.add_argument('--num-privacy-scores', type=int, default=30,
+                        help='Number of privacy score outputs for --model-type privacy_aware')
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu')
     parser.add_argument('--pretrained', action='store_true', help='Use pretrained backbone')
+    parser.add_argument('--model-type', default='attribute',
+                        choices=['attribute', 'privacy_aware'],
+                        help='Model class to use: "attribute" (base) or '
+                             '"privacy_aware" (PRCNN extension with privacy score branch)')
+    parser.add_argument('--predict-privacy-scores', action='store_true',
+                        help='Also write privacy score predictions to the output JSONL')
 
     # Data source configuration for large tar streaming datasets
     parser.add_argument('--data-source', default='local',
@@ -171,7 +189,9 @@ def main():
     if config:
         data_source = config.data_source
 
-    model = build_model(args.arch, args.num_classes, pretrained=args.pretrained)
+    model = build_model(args.arch, args.num_classes, pretrained=args.pretrained,
+                        model_type=args.model_type,
+                        num_privacy_scores=args.num_privacy_scores)
     if args.weights is not None:
         reload_model_weights(model, args.weights, strict=False, map_location='cpu')
 
@@ -302,7 +322,8 @@ def main():
         dataset = PAPDataset(args.infile, im_shape=(224, 224))
         loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=4)
 
-    classify_paths(model, device, loader, dataset, args.outfile)
+    classify_paths(model, device, loader, dataset, args.outfile,
+                   predict_privacy_scores=args.predict_privacy_scores)
 
 
 if __name__ == '__main__':

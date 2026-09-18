@@ -13,8 +13,11 @@ VPA (Visual Privacy Advisor) - PyTorch re-implementation. Predicts 68 visual att
 ## Key Commands
 
 ```powershell
-# Train (local data)
+# Training (local data)
 python vispr\tools\scripts\train_torch.py --infile train.txt --valfile val.txt --epochs 10 --save-path ./model.pth
+
+# Prepare user_scores TSV for privacy-aware model (see vispr/datasets/README_user_scores.md)
+python -m vispr.tools.scripts.prepare_user_scores --anno-list vispr\datasets\train2017.txt --user-prefs user_studies\user_profiles.tsv --pool max --outfile vispr\datasets\user_scores_train2017.tsv
 
 # Train (HF streaming with caching)
 python vispr\tools\scripts\train_torch.py --data-source hf_tar_stream --hf-repo user/dataset --hf-file-path train.tar.gz --cache-dir ./stream_cache --max-retries 5
@@ -43,13 +46,21 @@ python tests\run_unit_tests.py
 ```
 vispr/
   __init__.py              # DS_ROOT, CAFFE_ROOT (env-configurable)
-  datasets/pap_dataset.py  # PAPDataset (local JSON annotations)
+  datasets/pap_dataset.py  # PAPDataset (local JSON annotations; optional user_scores_path for privacy-aware training)
+  models/                  # Model classes: attribute_model.py (AttributeModel), privacy_aware_model.py (PrivacyAwareAttributeModel)
   torch_utils/transformer.py  # SimpleTransformer (RGB→BGR, mean subtract, HWC→CHW)
   tools/scripts/           # train, inference, evaluate, export scripts
   tools/common/utils.py    # load_attributes(), labels_to_vec()
 data/tar_streaming/        # Tar.gz streaming module (HF Hub & local disk, isolated, optional)
 configs/data_config.yaml   # data_source toggle: "local" vs "hf_tar_stream" vs "local_tar_stream"
 ```
+
+## Model classes (--model-type)
+
+- `vispr/models/attribute_model.py` — **`AttributeModel`**: torchvision backbone + 68-dim Linear head. State-dict keys identical to old ResNet checkpoints (`backbone.*`, `backbone.fc.*` — note `backbone` wraps the whole torchvision model, so `fc.weight` appears as `backbone.fc.weight`). Uses `pretrained=` flag which triggers torchvision deprecation warnings (harmless).
+- `vispr/models/privacy_aware_model.py` — **`PrivacyAwareAttributeModel(AttributeModel)`**: adds `self.privacy_branch = Sequential(Linear(68,128), Sigmoid, Linear(128,128), Sigmoid, Linear(128, n))` (matches `googlenet-prcnn/train_val.prototxt` lines 2121+). `forward(x)` returns a **tuple** `(attr_logits, privacy_scores)`. Base checkpoints load via `strict=False`.
+- Select via `--model-type attribute|privacy_aware` in train/inference/export scripts. Default `attribute` = original behavior.
+- Conv-loss note: when loading a base (attribute) checkpoint into a privacy-aware model, `reload_model_weights(..., strict=False)` loads backbone; privacy branch stays random.
 
 ## Gotchas
 

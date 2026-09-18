@@ -2,13 +2,18 @@ images/*
 annotations/*
 bkp/*
 .idea/
-/qualitative_results/*
 /model_package/*
 /checkpoints/*
+
 
 #output files
 #/*.jsonl
 #/*.tsv
+/output/*
+/output/q_result/*
+/qualitative_results/*
+/.vpa_venv/*
+/save_model/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -112,6 +117,4 @@ vispr_env/
 
 # mypy
 .mypy_cache/
-/output/q_result/
-/qualitative_results/
-/.vpa_venv/
+

@@ -18,6 +18,7 @@ This is a complete PyTorch implementation of a multi-label visual attribute pred
 - ✓ Environment variable configuration (no hardcoded paths)
 - ✓ Optional tar.gz streaming from Hugging Face Hub or local disk
 - ✓ Adaptive learning rate scheduling (linear warmup + plateau-based reduction)
+- ✓ Privacy-aware model (PRCNN extension) predicting per-image privacy scores in parallel with attribute logits
 
 ---
 
@@ -118,9 +119,111 @@ print(probs)  # Array of 68 attribute probabilities
 | Train (HF streaming) | `python vispr\tools\scripts\train_torch.py --data-source hf_tar_stream --hf-repo user/dataset --hf-file-path train.tar.gz --epochs 20` |
 | Train (local tar streaming) | `python vispr\tools\scripts\train_torch.py --data-source local_tar_stream --local-file-path ./data/train.tar.gz --epochs 20` |
 | Train (custom LR schedule) | `python vispr\tools\scripts\train_torch.py --infile train.txt --lr 1e-3 --warmup-epochs 5 --lr-patience 3 --epochs 20` |
+| Train (privacy-aware) | `python vispr\tools\scripts\train_torch.py --infile train.txt --model-type privacy_aware --user-scores-path user_scores.tsv --epochs 20` |
+| Prepare user_scores | `python -m vispr.tools.scripts.prepare_user_scores --anno-list train2017.txt --user-prefs user_studies\user_profiles.tsv --outfile user_scores.tsv` |
 | Inference | `python vispr\tools\scripts\attribute_predict_torch.py --infile test.txt --weights model.pth --outfile pred.jsonl` |
+| Inference (privacy-aware) | `python vispr\tools\scripts\attribute_predict_torch.py --infile test.txt --weights model.pth --outfile pred.jsonl --model-type privacy_aware --predict-privacy-scores` |
 | Evaluate | `python vispr\tools\scripts\evaluate.py pred.jsonl --class_scores metrics.tsv` |
 | Export ONNX | `python vispr\tools\scripts\export_to_onnx.py --weights model.pth --output model.onnx` |
+| Export ONNX (privacy-aware) | `python vispr\tools\scripts\export_to_onnx.py --weights model.pth --output model.onnx --model-type privacy_aware --export-privacy-scores` |
+
+---
+
+## Privacy-Aware Model (PRCNN Extension)
+
+The repository ships two model classes in `vispr/models/`:
+
+- **`AttributeModel`** — the base model (torchvision backbone + 68-dim attribute
+  classifier). This matches the original behavior exactly; state-dict keys are
+  identical to the previous ResNet checkpoints.
+- **`PrivacyAwareAttributeModel`** — extends `AttributeModel` with a privacy
+  scoring branch that mirrors the layers defined in
+  `models/googlenet-prcnn/train_val.prototxt` (lines 2121+):
+
+```
+attribute logits (68-dim, from backbone classifier)
+   │
+   ├─ fc_ps_1: Linear(68 → 128) + Sigmoid
+   ├─ fc_ps_2: Linear(128 → 128) + Sigmoid
+   └─ fc9:     Linear(128 → 30)      ← privacy scores
+```
+
+The privacy branch takes the 68 attribute logits and predicts a 30-dimensional
+per-image privacy score vector. During training, the total loss is:
+
+```
+loss = BCEWithLogitsLoss(attr_logits, labels)
+     + privacy_loss_weight * MSELoss(privacy_scores, user_scores)
+```
+
+with `privacy_loss_weight = 0.03` (matching the prototxt `loss_weight: 0.03`).
+
+### Selecting the model
+
+Use `--model-type privacy_aware` in `train_torch.py`, `attribute_predict_torch.py`,
+and `export_to_onnx.py`. The default (`attribute`) keeps the original behavior.
+
+```powershell
+# Train: attribute loss + privacy score loss (MSE, weight 0.03)
+python vispr\tools\scripts\train_torch.py `
+    --infile train.txt --valfile val.txt `
+    --model-type privacy_aware `
+    --user-scores-path user_scores.tsv `
+    --epochs 20 --save-path ./model_prcnn.pth
+```
+
+### User scores TSV format
+
+`--user-scores-path` points to a TSV mapping each image to its 30 privacy score
+targets. Format (header optional):
+
+```
+image_id  score_0  score_1  ...  score_29
+img123.jpg  0.05  0.1  0.2  ...  0.3
+img456.jpg  0.1   0.2  0.15 ...  0.25
+```
+
+The first column may be the image filename (matched against the annotation's
+`image_path` basename), a full image path, or the annotation path. Samples
+without a match fall back to a zero vector. If no `--user-scores-path` is given,
+the privacy loss is skipped and only the attribute (BCE) loss drives training.
+
+### Preparing the user_scores input file
+
+The `user_scores` targets are generated from the annotation labels and the user
+study preference scores, replicating the original Caffe `PAPInputLayer.forward()`
+(`layers/PAPInputLayer.py:305-321`):
+
+```powershell
+python -m vispr.tools.scripts.prepare_user_scores `
+    --anno-list vispr\datasets\train2017.txt `
+    --user-prefs user_studies\user_profiles.tsv `
+    --pool max `
+    --outfile vispr\datasets\user_scores_train2017.tsv
+```
+
+- `--pool`: `sum` (dot product), `avg` (normalized by attribute count), or
+  `max` (per-user max; matches the original prototxt run). Default `max`.
+- Output TSV has header `image_id score_0 ... score_{U-1}` where `U` = number of
+  users in the preference file (30 for `user_studies/user_profiles.tsv`).
+- The script loads and validates every annotation, logs each step to
+  `logs/prepare_user_scores.log`, and re-validates the written TSV using the
+  same header-detection rules as `PAPDataset`.
+- See `vispr/datasets/README_user_scores.md` for the full format documentation.
+  Shipped files: `vispr/datasets/user_scores_train2017.tsv` (10,000 rows) and
+  `vispr/datasets/user_scores_val2017.tsv` (4,167 rows).
+
+### Inference output
+
+With `--model-type privacy_aware --predict-privacy-scores`, the output JSONL
+includes both attribute probabilities and privacy scores:
+
+```json
+{"anno_path": "...", "pred_probs": [0.1, 0.9, ...], "privacy_scores": [0.05, 0.1, ...]}
+```
+
+Without `--predict-privacy-scores`, only `pred_probs` is written, so the output
+remains compatible with `evaluate.py`.
 
 ---
 

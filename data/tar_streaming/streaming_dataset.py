@@ -10,6 +10,7 @@ import random
 import logging
 from typing import Tuple, Optional, List, Dict, Any
 from collections import deque
+import csv
 
 import torch
 import numpy as np
@@ -50,7 +51,8 @@ class StreamingPAPDataset(IterableDataset):
         transform: Optional[SimpleTransformer] = None,
         shuffle: bool = True,
         attr_list_path: Optional[str] = None,
-        return_metadata: bool = False
+        return_metadata: bool = False,
+        user_scores_path: Optional[str] = None
     ):
         """Initialize streaming dataset.
 
@@ -61,6 +63,10 @@ class StreamingPAPDataset(IterableDataset):
             shuffle: Whether to shuffle data using buffer
             attr_list_path: Path to attributes.tsv (optional, uses default if None)
             return_metadata: If True, yield (image, label, image_path) tuples
+            user_scores_path: Optional path to a user privacy-scores TSV.
+                When provided, samples are yielded as 4-tuples
+                (image, label, user_scores, image_path) or 3-tuples
+                (image, label, user_scores) when return_metadata is False.
         """
         super().__init__()
 
@@ -72,6 +78,7 @@ class StreamingPAPDataset(IterableDataset):
         self.buffer_size = config.buffer_size
         self.return_metadata = return_metadata
         self.log_interval = config.log_interval
+        self.with_user_scores = user_scores_path is not None
 
         # Initialize transformer
         if transform is not None:
@@ -81,6 +88,9 @@ class StreamingPAPDataset(IterableDataset):
 
         # Load attribute mappings
         self.attr_id_to_name, self.attr_id_to_idx = load_attributes(attr_list_path)
+
+        # Load per-image user privacy preference scores (optional)
+        self.user_scores = self._load_user_scores(user_scores_path)
 
         # Cache configuration
         self._cache_path = config.get_cache_path()
@@ -144,6 +154,67 @@ class StreamingPAPDataset(IterableDataset):
         self._yielded_count = 0
         self._error_count = 0
 
+    def _load_user_scores(self, user_scores_path):
+        """Load user privacy preference scores from a TSV file.
+
+        Expected format (with optional header):
+            <image_id or image_path>  <score_0>  <score_1> ... <score_N-1>
+
+        Returns a dict mapping the first column (e.g. the image filename
+        or annotation path) to a ``np.ndarray`` of float scores.
+        """
+        if user_scores_path is None:
+            return {}
+
+        scores = {}
+        with open(user_scores_path, 'r') as f:
+            reader = csv.reader(f, delimiter='\t')
+            rows = list(reader)
+        if not rows:
+            return scores
+
+        first_row = rows[0]
+        has_header = False
+        if len(first_row) >= 2:
+            try:
+                float(first_row[-1])
+            except (ValueError, IndexError):
+                has_header = True
+        else:
+            has_header = True
+
+        data_rows = rows[1:] if has_header else rows
+        for row in data_rows:
+            if len(row) < 2:
+                continue
+            key = row[0].strip()
+            try:
+                vec = np.array([float(v) for v in row[1:]], dtype=np.float32)
+            except ValueError:
+                continue
+            if vec.size > 0:
+                scores[key] = vec
+        return scores
+
+    def _lookup_user_scores(self, record):
+        """Return the user-scores vector for a record.
+
+        Matches by image basename, raw 'image_path', or 'anno_path'.
+        Falls back to a zero vector of the first-loaded width.
+        """
+        img_path = record.get('image_path') or record.get('annotation_path') or record.get('anno_path') or ''
+        candidates = (os.path.basename(str(img_path)),
+                      str(img_path),
+                      str(record.get('annotation_path', '')),
+                      str(record.get('anno_path', '')))
+        for key in candidates:
+            if key and key in self.user_scores:
+                return torch.from_numpy(self.user_scores[key])
+        if self.user_scores:
+            width = next(iter(self.user_scores.values())).shape[0]
+            return torch.zeros(width, dtype=torch.float32)
+        return torch.zeros(0, dtype=torch.float32)
+
     def _process_record(self, record: Dict[str, Any]):
         """Process a single record into model input format.
 
@@ -169,6 +240,12 @@ class StreamingPAPDataset(IterableDataset):
         label_tensor = torch.from_numpy(label_vec)
         # Prefer annotation_path (JSON file path) over image_path for inference output
         image_path = record.get('annotation_path') or record.get('image_path') or record.get('anno_path')
+
+        if getattr(self, 'with_user_scores', False):
+            user_scores = self._lookup_user_scores(record)
+            if self.return_metadata:
+                return image_tensor, label_tensor, user_scores, image_path
+            return image_tensor, label_tensor, user_scores
 
         if self.return_metadata:
             return image_tensor, label_tensor, image_path
@@ -220,7 +297,14 @@ class StreamingPAPDataset(IterableDataset):
                 data = torch.load(path, weights_only=False)
                 image_tensor = data['image']
                 label_tensor = data['label']
-                if self.return_metadata:
+                if getattr(self, 'with_user_scores', False):
+                    user_scores = data['user_scores']
+                    if self.return_metadata:
+                        image_path = data.get('image_path', None)
+                        yield image_tensor, label_tensor, user_scores, image_path
+                    else:
+                        yield image_tensor, label_tensor, user_scores
+                elif self.return_metadata:
                     image_path = data.get('image_path', None)
                     yield image_tensor, label_tensor, image_path
                 else:
@@ -248,7 +332,11 @@ class StreamingPAPDataset(IterableDataset):
             'image': record_tuple[0],
             'label': record_tuple[1],
         }
-        if self.return_metadata and len(record_tuple) > 2:
+        if getattr(self, 'with_user_scores', False) and len(record_tuple) > 2:
+            data['user_scores'] = record_tuple[2]
+            if self.return_metadata and len(record_tuple) > 3:
+                data['image_path'] = record_tuple[3]
+        elif self.return_metadata and len(record_tuple) > 2:
             data['image_path'] = record_tuple[2]
 
         try:
