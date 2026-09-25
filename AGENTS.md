@@ -16,6 +16,9 @@ VPA (Visual Privacy Advisor) - PyTorch re-implementation. Predicts 68 visual att
 # Training (local data)
 python vispr\tools\scripts\train_torch.py --infile train.txt --valfile val.txt --epochs 10 --save-path ./model.pth
 
+# Train privacy-aware model (independent train/val user-scores TSVs)
+python vispr\tools\scripts\train_torch.py --infile train.txt --valfile val.txt --model-type privacy_aware --user-scores-path user_scores_train.tsv --val-user-scores-path user_scores_val.tsv --epochs 10
+
 # Prepare user_scores TSV for privacy-aware model (see vispr/datasets/README_user_scores.md)
 python -m vispr.tools.scripts.prepare_user_scores --anno-list vispr\datasets\train2017.txt --user-prefs user_studies\user_profiles.tsv --pool max --outfile vispr\datasets\user_scores_train2017.tsv
 

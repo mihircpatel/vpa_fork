@@ -236,7 +236,12 @@ def main():
     parser.add_argument('--num-privacy-scores', type=int, default=30,
                         help='Number of privacy score outputs for --model-type privacy_aware (default 30)')
     parser.add_argument('--user-scores-path', default=None,
-                        help='TSV file with per-image user privacy scores for privacy-aware training')
+                        help='TSV file with per-image user privacy scores for privacy-aware training '
+                             '(train split)')
+    parser.add_argument('--val-user-scores-path', default=None,
+                        help='Independent TSV file with per-image user privacy scores for the '
+                             'privacy-aware validation flow (default: none, validation does not '
+                             'use privacy scores)')
     parser.add_argument('--privacy-loss-weight', type=float, default=0.03,
                         help='Weight of privacy score loss (matches prototxt loss_weight=0.03)')
     parser.add_argument('--epochs', type=int, default=10)
@@ -517,7 +522,7 @@ def main():
                         cache_dir=args.cache_dir,
                     )
                     val_dataset = StreamingPAPDataset(config=val_config, shuffle=False,
-                                                      user_scores_path=args.user_scores_path if args.model_type == 'privacy_aware' else None)
+                                                      user_scores_path=args.val_user_scores_path if args.model_type == 'privacy_aware' else None)
                     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, num_workers=0)
                     print(f'Streaming validation dataset from HF Hub (dual archive mode)')
 
@@ -536,7 +541,7 @@ def main():
                     cache_dir=args.cache_dir,
                 )
                 val_dataset = StreamingPAPDataset(config=val_config, shuffle=False,
-                                                      user_scores_path=args.user_scores_path if args.model_type == 'privacy_aware' else None)
+                                                      user_scores_path=args.val_user_scores_path if args.model_type == 'privacy_aware' else None)
                 val_loader = DataLoader(val_dataset, batch_size=args.batch_size, num_workers=0)
                 print(f'Streaming validation dataset from HF Hub (combined archive mode)')
 
@@ -568,7 +573,7 @@ def main():
                         cache_dir=args.cache_dir,
                     )
                     val_dataset = StreamingPAPDataset(config=val_config, shuffle=False,
-                                                      user_scores_path=args.user_scores_path if args.model_type == 'privacy_aware' else None)
+                                                      user_scores_path=args.val_user_scores_path if args.model_type == 'privacy_aware' else None)
                     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, num_workers=0)
                     print(f'Streaming validation dataset from local archives (dual archive mode)')
 
@@ -586,14 +591,14 @@ def main():
                     cache_dir=args.cache_dir,
                 )
                 val_dataset = StreamingPAPDataset(config=val_config, shuffle=False,
-                                                      user_scores_path=args.user_scores_path if args.model_type == 'privacy_aware' else None)
+                                                      user_scores_path=args.val_user_scores_path if args.model_type == 'privacy_aware' else None)
                 val_loader = DataLoader(val_dataset, batch_size=args.batch_size, num_workers=0)
                 print(f'Streaming validation dataset from local archives (combined archive mode)')
 
     elif data_source == 'local' and args.valfile:
         user_scores_kwargs = {}
-        if args.model_type == 'privacy_aware':
-            user_scores_kwargs['user_scores_path'] = args.user_scores_path
+        if args.model_type == 'privacy_aware' and args.val_user_scores_path:
+            user_scores_kwargs['user_scores_path'] = args.val_user_scores_path
         val_dataset = PAPDataset(args.valfile, im_shape=(224, 224), **user_scores_kwargs)
         val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=2)
         print('No. of samples in validation set: ' + str(len(val_loader.dataset)))
@@ -631,7 +636,13 @@ def main():
             # proceed without failing training; user can choose to abort by removing flag
 
     if args.model_type == 'privacy_aware' and args.user_scores_path:
-        print(f'Using privacy-aware model ({args.model_type}) with user scores from: {args.user_scores_path}')
+        print(f'Using privacy-aware model ({args.model_type}) '
+              f'with train user scores from: {args.user_scores_path}')
+        if args.val_user_scores_path:
+            print(f'  Validation user scores from: {args.val_user_scores_path}')
+        elif args.valfile:
+            print(f'  Warning: no --val-user-scores-path provided; validation dataset will not '
+                  f'load user scores.')
     model = build_model(args.arch, args.num_classes, pretrained=args.pretrained,
                         model_type=args.model_type,
                         num_privacy_scores=args.num_privacy_scores).to(device)

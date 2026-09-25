@@ -119,7 +119,7 @@ print(probs)  # Array of 68 attribute probabilities
 | Train (HF streaming) | `python vispr\tools\scripts\train_torch.py --data-source hf_tar_stream --hf-repo user/dataset --hf-file-path train.tar.gz --epochs 20` |
 | Train (local tar streaming) | `python vispr\tools\scripts\train_torch.py --data-source local_tar_stream --local-file-path ./data/train.tar.gz --epochs 20` |
 | Train (custom LR schedule) | `python vispr\tools\scripts\train_torch.py --infile train.txt --lr 1e-3 --warmup-epochs 5 --lr-patience 3 --epochs 20` |
-| Train (privacy-aware) | `python vispr\tools\scripts\train_torch.py --infile train.txt --model-type privacy_aware --user-scores-path user_scores.tsv --epochs 20` |
+| Train (privacy-aware) | `python vispr\tools\scripts\train_torch.py --infile train.txt --valfile val.txt --model-type privacy_aware --user-scores-path user_scores_train.tsv --val-user-scores-path user_scores_val.tsv --epochs 20` |
 | Prepare user_scores | `python -m vispr.tools.scripts.prepare_user_scores --anno-list train2017.txt --user-prefs user_studies\user_profiles.tsv --outfile user_scores.tsv` |
 | Inference | `python vispr\tools\scripts\attribute_predict_torch.py --infile test.txt --weights model.pth --outfile pred.jsonl` |
 | Inference (privacy-aware) | `python vispr\tools\scripts\attribute_predict_torch.py --infile test.txt --weights model.pth --outfile pred.jsonl --model-type privacy_aware --predict-privacy-scores` |
@@ -165,12 +165,19 @@ and `export_to_onnx.py`. The default (`attribute`) keeps the original behavior.
 
 ```powershell
 # Train: attribute loss + privacy score loss (MSE, weight 0.03)
+# Independent user-scores TSVs for the train and validation flows:
 python vispr\tools\scripts\train_torch.py `
     --infile train.txt --valfile val.txt `
     --model-type privacy_aware `
-    --user-scores-path user_scores.tsv `
+    --user-scores-path user_scores_train.tsv `
+    --val-user-scores-path user_scores_val.tsv `
     --epochs 20 --save-path ./model_prcnn.pth
 ```
+
+- `--user-scores-path` targets the **training** split.
+- `--val-user-scores-path` targets the **validation** split; it is independent
+  and optional (the validation step reports only attribute metrics, so if it is
+  omitted the validation dataset is created without user scores).
 
 ### User scores TSV format
 
@@ -187,6 +194,9 @@ The first column may be the image filename (matched against the annotation's
 `image_path` basename), a full image path, or the annotation path. Samples
 without a match fall back to a zero vector. If no `--user-scores-path` is given,
 the privacy loss is skipped and only the attribute (BCE) loss drives training.
+Training and validation use **independent** files selected by
+`--user-scores-path` (train split) and `--val-user-scores-path` (validation
+split, optional).
 
 ### Preparing the user_scores input file
 
@@ -195,11 +205,18 @@ study preference scores, replicating the original Caffe `PAPInputLayer.forward()
 (`layers/PAPInputLayer.py:305-321`):
 
 ```powershell
+# One file per split — each is passed independently below
 python -m vispr.tools.scripts.prepare_user_scores `
     --anno-list vispr\datasets\train2017.txt `
     --user-prefs user_studies\user_profiles.tsv `
     --pool max `
     --outfile vispr\datasets\user_scores_train2017.tsv
+
+python -m vispr.tools.scripts.prepare_user_scores `
+    --anno-list vispr\datasets\val2017.txt `
+    --user-prefs user_studies\user_profiles.tsv `
+    --pool max `
+    --outfile vispr\datasets\user_scores_val2017.tsv
 ```
 
 - `--pool`: `sum` (dot product), `avg` (normalized by attribute count), or

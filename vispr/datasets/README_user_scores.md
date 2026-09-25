@@ -106,13 +106,22 @@ written to `logs/prepare_user_scores.log`).
 
 ## Usage with the privacy-aware model
 
+Training and validation use **independent** user-scores files:
+
 ```powershell
 python vispr/tools/scripts/train_torch.py `
   --infile train2017.txt --valfile val2017.txt `
   --model-type privacy_aware `
   --user-scores-path vispr/datasets/user_scores_train2017.tsv `
+  --val-user-scores-path vispr/datasets/user_scores_val2017.tsv `
   --epochs 10 --save-path ./model_prcnn.pth
 ```
 
-Note: for streaming data sources only a single `--user-scores-path` is passed
-(the same file is used for both train and validation steps if present).
+- `--user-scores-path` -> **train** split file (`user_scores_train2017.tsv`).
+- `--val-user-scores-path` -> **validation** split file
+  (`user_scores_val2017.tsv`), independent and optional. The validation step
+  reports only attribute metrics, so if it is omitted the validation dataset is
+  created without user scores.
+- For streaming data sources the same separation applies: pass
+  `--user-scores-path` for the streaming train dataset and
+  `--val-user-scores-path` for the streaming validation dataset.
